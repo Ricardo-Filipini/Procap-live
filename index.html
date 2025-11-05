@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <meta name="app-version" content="20240823.5" />
+
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Procap: Plataforma de Estudos</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              'primary': {
+                light: '#4f46e5',
+                dark: '#6366f1',
+              },
+              'secondary': {
+                light: '#10b981',
+                dark: '#34d399',
+              },
+              'background': {
+                light: '#f9fafb',
+                dark: '#111827',
+              },
+              'foreground': {
+                light: '#1f2937',
+                dark: '#f9fafb',
+              },
+              'card': {
+                light: '#ffffff',
+                dark: '#1f2937',
+              },
+              'border': {
+                  light: '#e5e7eb',
+                  dark: '#374151',
+              }
+            },
+            keyframes: {
+              flip: {
+                '0%': { transform: 'rotateY(0deg)' },
+                '100%': { transform: 'rotateY(180deg)' },
+              },
+              flip_back: {
+                '0%': { transform: 'rotateY(180deg)' },
+                '100%': { transform: 'rotateY(0deg)' },
+              },
+              'fade-in-up': {
+                  '0%': { opacity: '0', transform: 'translateY(20px)' },
+                  '100%': { opacity: '1', transform: 'translateY(0)' },
+              },
+            },
+            animation: {
+              flip: 'flip 0.6s forwards',
+              'flip-back': 'flip_back 0.6s forwards',
+              'fade-in-up': 'fade-in-up 0.5s ease-out forwards',
+            },
+          }
+        }
+      }
+    </script>
+    <!-- Polyfill for import maps to ensure broader browser compatibility -->
+    <script async src="https://ga.jspm.io/npm:es-module-shims@1.10.0/dist/es-module-shims.js" crossorigin="anonymous"></script>
+  <script type="importmap">
+{
+  "imports": {
+    "recharts": "https://esm.sh/recharts@2.12.7",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.22.0",
+    "react": "https://esm.sh/react@18.3.1",
+    "react/": "https://esm.sh/react@18.3.1/",
+    "react-dom": "https://esm.sh/react-dom@18.3.1",
+    "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
+    "react-dom/": "https://esm.sh/react-dom@18.3.1/",
+    "pdfjs-dist/build/pdf.mjs": "https://aistudiocdn.com/pdfjs-dist@^4.4.168/build/pdf.mjs",
+    "pdfjs-dist/": "https://aistudiocdn.com/pdfjs-dist@^4.4.168/",
+    "@supabase/supabase-js": "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm",
+    "mammoth": "https://cdn.jsdelivr.net/npm/mammoth@1.7.1/+esm"
+  }
+}
+</script>
+</head>
+  <body class="bg-background-light dark:bg-background-dark">
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
