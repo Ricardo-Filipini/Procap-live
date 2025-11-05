@@ -272,6 +272,7 @@ const App: React.FC = () => {
               agentSettings={agentSettings}
               screenContext={screenContext}
               setLiveAgentStatus={setLiveAgentStatus}
+              setAgentSettings={setAgentSettings}
           />
       )}
     </div>

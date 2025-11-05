@@ -10,7 +10,7 @@ import {
     Type
 } from '@google/genai';
 import { AppData, User, View, AgentSettings, LiveAgentStatus } from '../types';
-import { MicrophoneIcon, MicrophoneSlashIcon } from './Icons';
+import { MicrophoneIcon, MicrophoneSlashIcon, PauseIcon } from './Icons';
 import { decode, decodeAudioData, encode } from '../lib/audio';
 import { VIEWS } from '../constants';
 import { supabase } from '../services/supabaseClient';
@@ -23,12 +23,20 @@ interface LiveAgentProps {
     agentSettings: AgentSettings;
     screenContext: string | null;
     setLiveAgentStatus: (status: LiveAgentStatus) => void;
+    setAgentSettings: React.Dispatch<React.SetStateAction<AgentSettings>>;
 }
 
 const RETRY_DELAYS = [1000, 2000, 5000, 10000]; // ms for retries
 const MAX_RETRIES = RETRY_DELAYS.length;
 
-export const LiveAgent: React.FC<LiveAgentProps> = ({ appData, currentUser, setActiveView, setNavTarget, agentSettings, screenContext, setLiveAgentStatus }) => {
+const FALLBACK_API_KEYS = [
+    'AIzaSyDR0Hs4OQz2Pss1_DiviQQ1Lzpa_cGAhbQ',
+    'AIzaSyB2VifmEfcRyCNegusrO2sQLlDNBm-j6yw',
+    'AIzaSyCgchi49OE_ysRiimeQjxM5rG0NSKotycE',
+    'AIzaSyA0U7iJOnWHajq2aanwYsT-IpwRlZk8OOU',
+];
+
+export const LiveAgent: React.FC<LiveAgentProps> = ({ appData, currentUser, setActiveView, setNavTarget, agentSettings, screenContext, setLiveAgentStatus, setAgentSettings }) => {
     const [isMuted, setIsMuted] = useState(false);
     const isMutedRef = useRef(isMuted);
 
@@ -48,6 +56,21 @@ export const LiveAgent: React.FC<LiveAgentProps> = ({ appData, currentUser, setA
     
     useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
 
+    const handleStopSpeech = useCallback(() => {
+        const { audioSources, outputCtx } = resourcesRef.current;
+        if (outputCtx) {
+            for (const source of audioSources.values()) {
+                try {
+                    source.stop();
+                } catch (e) {
+                    // Ignore errors if source has already stopped
+                }
+            }
+            audioSources.clear();
+            nextStartTimeRef.current = 0;
+        }
+    }, []);
+
     const cleanup = useCallback(() => {
         sessionPromiseRef.current?.then(session => session.close()).catch(console.error);
         resourcesRef.current.stream?.getTracks().forEach(track => track.stop());
@@ -55,23 +78,25 @@ export const LiveAgent: React.FC<LiveAgentProps> = ({ appData, currentUser, setA
         resourcesRef.current.mediaSource?.disconnect();
         resourcesRef.current.inputCtx?.close().catch(console.error);
         resourcesRef.current.outputCtx?.close().catch(console.error);
-        resourcesRef.current.audioSources.forEach(s => s.stop());
-        resourcesRef.current.audioSources.clear();
+        handleStopSpeech();
         sessionPromiseRef.current = null;
-    }, []);
+    }, [handleStopSpeech]);
 
     const connect = useCallback(async () => {
         cleanup();
         setLiveAgentStatus('connecting');
 
         const getApiKey = (): string => {
+            // 1. User-provided key from settings
             const userKey = agentSettings.apiKey.trim();
             if (userKey) return userKey;
             
+            // 2. Environment variable key
             const envKey = (import.meta as any).env?.VITE_API_KEY || process.env.API_KEY;
             if (envKey) return envKey;
             
-            return 'AIzaSyDR0Hs4OQz2Pss1_DiviQQ1Lzpa_cGAhbQ' || 'AIzaSyBmLFI0_aMSaPQpxSgvl8PdFkURcfd7Kvo';
+            // 3. One of the hardcoded fallback keys
+            return FALLBACK_API_KEYS[Math.floor(Math.random() * FALLBACK_API_KEYS.length)];
         };
         
         const apiKey = getApiKey();
@@ -119,6 +144,10 @@ export const LiveAgent: React.FC<LiveAgentProps> = ({ appData, currentUser, setA
     *   Uso: Obter uma lista de todos os itens disponíveis em uma categoria. Útil para responder "quais cadernos existem?".
     *   \`tableName\`: Tabelas permitidas: 'question_notebooks', 'sources'.
     *   Exemplo: O usuário pergunta "quais cadernos de questões temos?". Você chama \`querySupabase(tableName: 'question_notebooks')\` e lista os resultados para ele.
+
+*   \`adjustPlaybackSpeed(speed)\`:
+    *   Uso: Ajustar a velocidade da minha fala.
+    *   \`speed\`: A nova velocidade. Valores permitidos: 0.85 (lento), 1.0 (normal), 1.15 (rápido).
 
 **INFORMAÇÕES DISPONÍVEIS:**
 
@@ -169,6 +198,17 @@ ${screenContext || "Nenhum conteúdo específico na tela. O usuário está prova
                         },
                         required: ['tableName']
                     }
+                },
+                {
+                    name: 'adjustPlaybackSpeed',
+                    description: 'Ajusta a velocidade da minha fala para mais rápido ou mais lento.',
+                    parameters: {
+                        type: Type.OBJECT,
+                        properties: {
+                            speed: { type: Type.NUMBER, description: 'A nova velocidade de reprodução. Valores permitidos: 0.85 (lento), 1.0 (normal), 1.15 (rápido).' }
+                        },
+                        required: ['speed']
+                    },
                 }
             ];
 
@@ -201,6 +241,12 @@ ${screenContext || "Nenhum conteúdo específico na tela. O usuário está prova
                         resourcesRef.current.scriptProcessor.connect(inputCtx.destination);
                     },
                     onmessage: async (message: LiveServerMessage) => {
+                        const interrupted = message.serverContent?.interrupted;
+                        if (interrupted) {
+                            console.log("Agent speech interrupted by user input.");
+                            handleStopSpeech();
+                        }
+
                          if (message.toolCall) {
                             for (const fc of message.toolCall.functionCalls) {
                                 let result: any = { error: 'Função desconhecida' };
@@ -251,6 +297,14 @@ ${screenContext || "Nenhum conteúdo específico na tela. O usuário está prova
                                         } else {
                                             result = { error: `Acesso à tabela "${tableName}" não é permitido ou o banco de dados não está disponível.` };
                                         }
+                                    } else if (fc.name === 'adjustPlaybackSpeed') {
+                                        const { speed } = args;
+                                        if (typeof speed === 'number' && [0.85, 1.0, 1.15].includes(speed)) {
+                                            setAgentSettings(prev => ({ ...prev, speed }));
+                                            result = { success: `Velocidade da fala ajustada para ${speed}.` };
+                                        } else {
+                                            result = { error: 'Velocidade inválida. Valores permitidos são 0.85, 1.0, 1.15.' };
+                                        }
                                     }
                                 } catch (e: any) {
                                     console.error(`Error executing tool call ${fc.name}:`, e);
@@ -298,7 +352,7 @@ ${screenContext || "Nenhum conteúdo específico na tela. O usuário está prova
             setLiveAgentStatus('error');
             if (!isUnmountingRef.current) handleReconnect();
         }
-    }, [cleanup, setLiveAgentStatus, agentSettings, currentUser, appData, screenContext, setActiveView, setNavTarget]);
+    }, [cleanup, setLiveAgentStatus, agentSettings, currentUser, appData, screenContext, setActiveView, setNavTarget, setAgentSettings, handleStopSpeech]);
     
     const handleReconnect = useCallback(() => {
         if (retryCountRef.current < MAX_RETRIES) {
@@ -326,13 +380,20 @@ ${screenContext || "Nenhum conteúdo específico na tela. O usuário está prova
     }, [connect, cleanup, setLiveAgentStatus]);
 
     return (
-        <div className="fixed bottom-24 right-4 z-[100] flex flex-col items-center gap-4">
+        <div className="fixed bottom-24 right-4 z-[100] flex items-center gap-3">
+             <button
+                onClick={handleStopSpeech}
+                className="p-3 rounded-full shadow-lg transition-colors bg-yellow-500 text-white hover:bg-yellow-600"
+                title="Pausar fala do agente"
+            >
+                <PauseIcon className="w-6 h-6" />
+            </button>
              <button
                 onClick={() => setIsMuted(prev => !prev)}
-                className={`p-4 rounded-full shadow-lg transition-colors ${isMuted ? 'bg-red-500 text-white' : 'bg-green-500 text-white'}`}
-                title={isMuted ? "Desmutar Microfone" : "Mutar Microfone"}
+                className={`p-3 rounded-full shadow-lg transition-colors ${isMuted ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-green-500 text-white hover:bg-green-600'}`}
+                title={isMuted ? "Ativar microfone" : "Mutar microfone"}
             >
-                {isMuted ? <MicrophoneSlashIcon className="w-8 h-8" /> : <MicrophoneIcon className="w-8 h-8" />}
+                {isMuted ? <MicrophoneSlashIcon className="w-6 h-6" /> : <MicrophoneIcon className="w-6 h-6" />}
             </button>
         </div>
     );
