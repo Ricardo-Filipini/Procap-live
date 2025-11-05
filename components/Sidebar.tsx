@@ -27,7 +27,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentUser, activeView, setAc
             <Bars3Icon className="w-6 h-6" />
         </button>
       </div>
-      <nav className="flex-1 mt-4 overflow-y-auto">
+      <nav className="flex-1 mt-4 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
         <ul>
           {availableViews.map((view) => (
             <li key={view.name} className={`${isCollapsed ? 'px-1' : 'px-4'}`}>
