@@ -270,39 +270,17 @@ const NotebookStatsModal: React.FC<{
     const leaderboardData = useMemo(() => {
         const userScores: { [userId: string]: { correct: number } } = {};
 
-        if (notebookId === 'all_questions') {
-            // For the 'All Questions' leaderboard, aggregate unique correct first-try answers across all notebooks.
-            const uniqueCorrectAnswers = new Set<string>(); // Stores "userId|questionId"
-
-            appData.userQuestionAnswers.forEach(ans => {
+        // Correctly filter for the specific notebook context, whether it's 'all_questions' or a UUID.
+        appData.userQuestionAnswers
+            .filter(ans => ans.notebook_id === notebookId)
+            .forEach(ans => {
+                if (!userScores[ans.user_id]) {
+                    userScores[ans.user_id] = { correct: 0 };
+                }
                 if (ans.is_correct_first_try) {
-                    uniqueCorrectAnswers.add(`${ans.user_id}|${ans.question_id}`);
+                    userScores[ans.user_id].correct++;
                 }
             });
-
-            uniqueCorrectAnswers.forEach(key => {
-                const [userId] = key.split('|');
-                if (userId && !userScores[userId]) {
-                    userScores[userId] = { correct: 0 };
-                }
-                if (userId) {
-                    userScores[userId].correct++;
-                }
-            });
-
-        } else {
-            // For specific notebooks, count correct first-try answers within that notebook's context.
-            appData.userQuestionAnswers
-                .filter(ans => ans.notebook_id === notebookId)
-                .forEach(ans => {
-                    if (!userScores[ans.user_id]) {
-                        userScores[ans.user_id] = { correct: 0 };
-                    }
-                    if (ans.is_correct_first_try) {
-                        userScores[ans.user_id].correct++;
-                    }
-                });
-        }
 
         return Object.entries(userScores)
             .map(([userId, scores]) => {
