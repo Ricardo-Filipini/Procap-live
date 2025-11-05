@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { MainContentProps } from '../../types';
 import { Question, Comment, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer } from '../../types';
@@ -21,7 +22,7 @@ interface QuestionsViewProps extends MainContentProps {
 export const QuestionsView: React.FC<QuestionsViewProps> = ({ allItems, appData, setAppData, currentUser, updateUser, navTarget, clearNavTarget, setScreenContext }) => {
     const [selectedNotebook, setSelectedNotebook] = useState<QuestionNotebook | 'all' | null>(null);
     const [commentingOnNotebook, setCommentingOnNotebook] = useState<QuestionNotebook | null>(null);
-    const [sort, setSort] = useState<SortOption>('time');
+    const [sort, setSort] = useState<SortOption>('temp');
     const [questionIdToFocus, setQuestionIdToFocus] = useState<string | null>(null);
     
     useEffect(() => {
