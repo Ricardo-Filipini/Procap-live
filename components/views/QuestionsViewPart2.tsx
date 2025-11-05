@@ -272,20 +272,22 @@ const NotebookStatsModal: React.FC<{
 
         if (notebookId === 'all_questions') {
             // For the 'All Questions' leaderboard, aggregate unique correct first-try answers across all notebooks.
-            const uniqueCorrectAnswers = new Set<string>(); // Stores "userId-questionId"
+            const uniqueCorrectAnswers = new Set<string>(); // Stores "userId|questionId"
 
             appData.userQuestionAnswers.forEach(ans => {
                 if (ans.is_correct_first_try) {
-                    uniqueCorrectAnswers.add(`${ans.user_id}-${ans.question_id}`);
+                    uniqueCorrectAnswers.add(`${ans.user_id}|${ans.question_id}`);
                 }
             });
 
             uniqueCorrectAnswers.forEach(key => {
-                const [userId] = key.split('-');
-                if (!userScores[userId]) {
+                const [userId] = key.split('|');
+                if (userId && !userScores[userId]) {
                     userScores[userId] = { correct: 0 };
                 }
-                userScores[userId].correct++;
+                if (userId) {
+                    userScores[userId].correct++;
+                }
             });
 
         } else {
@@ -599,11 +601,12 @@ export const NotebookDetailView: React.FC<{
                 default:
                     if (notebook !== 'all') {
                         // Fix: Add a check to ensure `notebook.question_ids` is an array before using .map()
-// Fix: The `id` in `notebook.question_ids.map` was inferred as `unknown` due to upstream type pollution, causing a type error. Explicitly mapping with `String` ensures all IDs are strings.
+                        // Fix: The `id` in `notebook.question_ids.map` was inferred as `unknown` due to upstream type pollution, causing a type error. Explicitly mapping with `String` ensures all IDs are strings.
                         const questionIds = Array.isArray(notebook.question_ids) ? notebook.question_ids.map(String) : [];
                         const orderMap = new Map(questionIds.map((id, index) => [id, index]));
                         // FIX: By ensuring `a` and `b` are correctly typed from the `groupToSort` array and casting their IDs to strings for the map lookup, we prevent type errors caused by upstream `any` types.
-                        groupToSort.sort((a: any, b: any) => {
+                        // FIX: Removed explicit 'any' types from sort callback parameters to allow TypeScript to infer the correct types, resolving the 'unknown is not assignable to string' error.
+                        groupToSort.sort((a, b) => {
                             const orderA = orderMap.get(String(a.id)) ?? Infinity;
                             const orderB = orderMap.get(String(b.id)) ?? Infinity;
                             if (orderA < orderB) return -1;
