@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { MainContentProps } from '../../types';
 import { Question, Comment, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer } from '../../types';
@@ -34,8 +35,9 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ allItems, appData,
                 alert(`Caderno de questões com ID "${navTarget.id}" não encontrado.`);
             }
             clearNavTarget();
-        } else if (navTarget) {
+        } else if (navTarget?.term) {
             // Handle navigation by term (e.g., from community chat)
+            // FIX: Ensure navTarget.term exists before using it to prevent runtime errors.
             const notebook = appData.questionNotebooks.find(n => n.name.toLowerCase() === navTarget.term.toLowerCase());
             if (notebook) {
                 setSelectedNotebook(notebook);

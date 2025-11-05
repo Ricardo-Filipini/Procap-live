@@ -1,3 +1,5 @@
+
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
     GoogleGenAI,
@@ -69,7 +71,7 @@ export const LiveAgent: React.FC<LiveAgentProps> = ({ appData, currentUser, setA
             const envKey = (import.meta as any).env?.VITE_API_KEY || process.env.API_KEY;
             if (envKey) return envKey;
             
-            return 'AIzaSyBmLFI0_aMSaPQpxSgvl8PdFkURcfd7Kvo';
+            return 'AIzaSyDR0Hs4OQz2Pss1_DiviQQ1Lzpa_cGAhbQ' || 'AIzaSyBmLFI0_aMSaPQpxSgvl8PdFkURcfd7Kvo';
         };
         
         const apiKey = getApiKey();
@@ -239,7 +241,8 @@ ${screenContext || "Nenhum conteúdo específico na tela. O usuário está prova
                                         const { tableName } = args;
                                         const allowedTables = ['question_notebooks', 'sources'];
                                         if (allowedTables.includes(tableName) && supabase) {
-                                            const { data, error } = await supabase.from(tableName).select('id, name, title');
+                                            // FIX: Changed select to '*' to prevent column not found errors, as 'name' exists in one table and 'title' in another.
+                                            const { data, error } = await supabase.from(tableName).select('*');
                                             if (error) {
                                                 result = { error: `Erro ao consultar a tabela: ${error.message}` };
                                             } else {

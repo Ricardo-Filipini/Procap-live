@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { MainContent } from './components/MainContent';
@@ -25,7 +26,8 @@ const App: React.FC = () => {
   const [isLiveAgentActive, setIsLiveAgentActive] = useState(false);
   const [liveAgentStatus, setLiveAgentStatus] = useState<LiveAgentStatus>('inactive');
   const [isAgentSettingsOpen, setIsAgentSettingsOpen] = useState(false);
-  const [navTarget, setNavTarget] = useState<{viewName: string, term: string, id?: string, subId?: string} | null>(null);
+  // FIX: Made the 'term' property optional in the navTarget state type to match its usage and fix the type error.
+  const [navTarget, setNavTarget] = useState<{viewName: string, term?: string, id?: string, subId?: string} | null>(null);
   const [screenContext, setScreenContext] = useState<string | null>(null);
   const [agentSettings, setAgentSettings] = useState<AgentSettings>(() => {
       const savedSettings = localStorage.getItem('procap_agent_settings');

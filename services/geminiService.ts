@@ -3,7 +3,7 @@ import { ContentType, Question, User, UserContentInteraction, UserQuestionAnswer
 
 // Tenta usar a variável de ambiente VITE_API_KEY do build, se não existir, usa process.env.API_KEY, e por último uma chave fixa.
 // Fix: Cast `import.meta` to `any` to access the `env` property, which is added by Vite during the build process but may not be recognized by TypeScript's default typings without a `vite-env.d.ts` file.
-const API_KEY = (import.meta as any).env?.VITE_API_KEY || process.env.API_KEY || 'AIzaSyBmLFI0_aMSaPQpxSgvl8PdFkURcfd7Kvo';
+const API_KEY = (import.meta as any).env?.VITE_API_KEY || process.env.API_KEY || 'AIzaSyDR0Hs4OQz2Pss1_DiviQQ1Lzpa_cGAhbQ' || 'AIzaSyBmLFI0_aMSaPQpxSgvl8PdFkURcfd7Kvo';
 
 if (!API_KEY) {
   console.warn("API_KEY not found. Gemini API features will be disabled.");
