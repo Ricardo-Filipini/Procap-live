@@ -1,3 +1,5 @@
+
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { MainContentProps } from '../../types';
 import { Question, Comment, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer } from '../../types';
@@ -9,7 +11,7 @@ import { FontSizeControl, FONT_SIZE_CLASSES } from '../shared/FontSizeControl';
 import { checkAndAwardAchievements } from '../../lib/achievements';
 import { handleInteractionUpdate, handleVoteUpdate } from '../../lib/content';
 import { filterItemsByPrompt, generateNotebookName } from '../../services/geminiService';
-import { addQuestionNotebook, upsertUserVote, updateContentComments, updateUser as supabaseUpdateUser, upsertUserQuestionAnswer, clearNotebookAnswers, supabase } from '../../services/supabaseClient';
+import { addQuestionNotebook, upsertUserVote, updateContentComments, updateUser as supabaseUpdateUser, upsertUserQuestionAnswer, clearNotebookAnswers, supabase, logXpEvent } from '../../services/supabaseClient';
 
 const CreateNotebookModal: React.FC<{
     isOpen: boolean;
@@ -266,19 +268,39 @@ const NotebookStatsModal: React.FC<{
     }, [appData.userQuestionAnswers, currentUser.id, notebookId]);
 
     const leaderboardData = useMemo(() => {
-        const userScores: { [userId: string]: { correct: number, total: number } } = {};
+        const userScores: { [userId: string]: { correct: number } } = {};
 
-        appData.userQuestionAnswers
-            .filter(ans => ans.notebook_id === notebookId)
-            .forEach(ans => {
-                if (!userScores[ans.user_id]) {
-                    userScores[ans.user_id] = { correct: 0, total: 0 };
-                }
-                userScores[ans.user_id].total++;
+        if (notebookId === 'all_questions') {
+            // For the 'All Questions' leaderboard, aggregate unique correct first-try answers across all notebooks.
+            const uniqueCorrectAnswers = new Set<string>(); // Stores "userId-questionId"
+
+            appData.userQuestionAnswers.forEach(ans => {
                 if (ans.is_correct_first_try) {
-                    userScores[ans.user_id].correct++;
+                    uniqueCorrectAnswers.add(`${ans.user_id}-${ans.question_id}`);
                 }
             });
+
+            uniqueCorrectAnswers.forEach(key => {
+                const [userId] = key.split('-');
+                if (!userScores[userId]) {
+                    userScores[userId] = { correct: 0 };
+                }
+                userScores[userId].correct++;
+            });
+
+        } else {
+            // For specific notebooks, count correct first-try answers within that notebook's context.
+            appData.userQuestionAnswers
+                .filter(ans => ans.notebook_id === notebookId)
+                .forEach(ans => {
+                    if (!userScores[ans.user_id]) {
+                        userScores[ans.user_id] = { correct: 0 };
+                    }
+                    if (ans.is_correct_first_try) {
+                        userScores[ans.user_id].correct++;
+                    }
+                });
+        }
 
         return Object.entries(userScores)
             .map(([userId, scores]) => {
@@ -547,6 +569,8 @@ export const NotebookDetailView: React.FC<{
     }, [notebook, allQuestions]);
 
     useEffect(() => {
+        const currentQuestionId = sortedQuestions[currentQuestionIndex]?.id;
+
         let questionsToProcess = [...questionsInNotebook];
 
         if (showWrongOnly) {
@@ -592,7 +616,8 @@ export const NotebookDetailView: React.FC<{
             }
             return groupToSort;
         };
-
+        
+        let finalSortedQuestions;
         if (notebook === 'all' && prioritizeApostilas) {
             const apostilaQuestions = questionsToProcess.filter(q => q.source?.title.startsWith('(Apostila)'));
             const otherQuestions = questionsToProcess.filter(q => !q.source?.title.startsWith('(Apostila)'));
@@ -600,12 +625,20 @@ export const NotebookDetailView: React.FC<{
             const sortedApostila = sortGroup(apostilaQuestions);
             const sortedOthers = sortGroup(otherQuestions);
 
-            setSortedQuestions([...sortedApostila, ...sortedOthers]);
+            finalSortedQuestions = [...sortedApostila, ...sortedOthers];
         } else {
-            setSortedQuestions(sortGroup(questionsToProcess));
+            finalSortedQuestions = sortGroup(questionsToProcess);
         }
         
-        setCurrentQuestionIndex(0);
+        setSortedQuestions(finalSortedQuestions);
+        
+        const newIndex = currentQuestionId ? finalSortedQuestions.findIndex(q => q.id === currentQuestionId) : -1;
+
+        if (newIndex !== -1) {
+            setCurrentQuestionIndex(newIndex);
+        } else {
+            setCurrentQuestionIndex(0);
+        }
 
     }, [questionsInNotebook, questionSortOrder, prioritizeApostilas, notebook, shuffleTrigger, showWrongOnly, appData.userQuestionAnswers, currentUser.id, notebookId]);
 
@@ -694,6 +727,14 @@ export const NotebookDetailView: React.FC<{
             const isCorrectFirstTry = attempts.length === 1 && isCorrect;
             const xpMap = [10, 5, 2, 0];
             const xpGained = isCorrect ? (xpMap[wrongAnswers.size] || 0) : 0;
+
+            if (xpGained > 0) {
+                logXpEvent(currentUser.id, xpGained, 'QUESTION_ANSWER', currentQuestion.id).then(newEvent => {
+                    if (newEvent) {
+                        setAppData(prev => ({...prev, xp_events: [newEvent, ...prev.xp_events]}));
+                    }
+                });
+            }
 
             const answerPayload: Partial<UserQuestionAnswer> = {
                 user_id: currentUser.id, notebook_id: notebookId, question_id: currentQuestion.id,
