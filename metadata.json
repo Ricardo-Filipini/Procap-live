@@ -1,5 +1,5 @@
 {
-  "name": "Procap: G200 - live",
+  "name": "Procap: G200",
   "description": "Uma plataforma de estudos online, interativa e colaborativa, focada na preparação para o programa de capacitação do concurso do Banco Central, com uma IA integrada para personalizar a experiência de estudo.",
   "requestFramePermissions": [
     "microphone"

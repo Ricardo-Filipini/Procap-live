@@ -471,7 +471,8 @@ export const NotebookDetailView: React.FC<{
     updateUser: MainContentProps['updateUser'];
     onBack: () => void;
     questionIdToFocus?: string | null;
-}> = ({ notebook, allQuestions, appData, setAppData, currentUser, updateUser, onBack, questionIdToFocus }) => {
+    setScreenContext?: (context: string | null) => void;
+}> = ({ notebook, allQuestions, appData, setAppData, currentUser, updateUser, onBack, questionIdToFocus, setScreenContext }) => {
     
     const [userAnswers, setUserAnswers] = useState<Map<string, UserQuestionAnswer>>(new Map());
     const notebookId = notebook === 'all' ? 'all_questions' : notebook.id;
@@ -634,6 +635,18 @@ export const NotebookDetailView: React.FC<{
             setIsCompleted(false);
         }
     }, [currentQuestionIndex, currentQuestion, userAnswers]);
+    
+    useEffect(() => {
+        if (setScreenContext && currentQuestion) {
+            const context = `Questão: ${currentQuestion.questionText}\n\nOpções:\n- ${currentQuestion.options.join('\n- ')}`;
+            setScreenContext(context);
+        }
+        return () => {
+            if (setScreenContext) {
+                setScreenContext(null);
+            }
+        }
+    }, [currentQuestion, setScreenContext]);
 
     const handleCommentAction = async (action: 'add' | 'vote', payload: any) => {
         if (!commentingOnQuestion) return;

@@ -19,7 +19,7 @@ import { CronogramaView } from './views/CronogramaView';
 import { LinksFilesView } from './views/LinksFilesView';
 
 export const MainContent: React.FC<MainContentProps> = (props) => {
-  const { activeView, setActiveView, appData, theme, setTheme, onToggleLiveAgent, isLiveAgentActive, onToggleAgentSettings, navTarget, setNavTarget } = props;
+  const { activeView, setActiveView, appData, theme, setTheme, onToggleLiveAgent, isLiveAgentActive, onToggleAgentSettings, navTarget, setNavTarget, setScreenContext, liveAgentStatus } = props;
 
   const handleNavigation = (viewName: string, term: string, id?: string) => {
     const targetView = VIEWS.find(v => v.name === viewName);
@@ -45,6 +45,7 @@ export const MainContent: React.FC<MainContentProps> = (props) => {
       ...props,
       navTarget: currentNavTarget,
       clearNavTarget: clearNavTarget,
+      setScreenContext: setScreenContext,
     };
 
     switch (activeView.name) {
@@ -85,6 +86,7 @@ export const MainContent: React.FC<MainContentProps> = (props) => {
             setTheme={setTheme} 
             onToggleLiveAgent={onToggleLiveAgent!}
             isLiveAgentActive={isLiveAgentActive!}
+            liveAgentStatus={liveAgentStatus!}
             onToggleAgentSettings={onToggleAgentSettings!}
           />
           {renderContent()}

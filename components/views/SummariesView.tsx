@@ -66,7 +66,7 @@ interface SummariesViewProps extends MainContentProps {
     clearNavTarget: () => void;
 }
 
-export const SummariesView: React.FC<SummariesViewProps> = ({ allItems, appData, setAppData, currentUser, updateUser, navTarget, clearNavTarget }) => {
+export const SummariesView: React.FC<SummariesViewProps> = ({ allItems, appData, setAppData, currentUser, updateUser, navTarget, clearNavTarget, setScreenContext }) => {
     const [expanded, setExpanded] = useState<string | null>(null);
     const [commentingOn, setCommentingOn] = useState<Summary | null>(null);
     const contentType: ContentType = 'summary';
@@ -96,6 +96,10 @@ export const SummariesView: React.FC<SummariesViewProps> = ({ allItems, appData,
     const handleExpand = (summary: Summary) => {
         const isExpanding = expanded !== summary.id;
         setExpanded(isExpanding ? summary.id : null);
+        
+        if (setScreenContext) {
+            setScreenContext(isExpanding ? `Resumo: ${summary.title}\n\n${summary.content}` : null);
+        }
 
         const interaction = appData.userContentInteractions.find(
             i => i.user_id === currentUser.id && i.content_id === summary.id && i.content_type === contentType

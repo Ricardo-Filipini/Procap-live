@@ -1,5 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
-// Fix: Removed unused and unexported 'LiveSession' type. The session type is inferred.
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
     GoogleGenAI,
     LiveServerMessage,
@@ -8,7 +7,7 @@ import {
     FunctionDeclaration,
     Type
 } from '@google/genai';
-import { AppData, User, View, AgentSettings } from '../types';
+import { AppData, User, View, AgentSettings, LiveAgentStatus } from '../types';
 import { MicrophoneIcon, MicrophoneSlashIcon } from './Icons';
 import { decode, decodeAudioData, encode } from '../lib/audio';
 import { VIEWS } from '../constants';
@@ -18,255 +17,310 @@ interface LiveAgentProps {
     appData: AppData;
     currentUser: User;
     setActiveView: (view: View) => void;
-    setNavTarget: (target: {viewName: string, term: string, id?: string, subId?: string} | null) => void;
+    setNavTarget: (target: {viewName: string, term?: string, id?: string, subId?: string} | null) => void;
     agentSettings: AgentSettings;
+    screenContext: string | null;
+    setLiveAgentStatus: (status: LiveAgentStatus) => void;
 }
 
-export const LiveAgent: React.FC<LiveAgentProps> = ({ appData, currentUser, setActiveView, setNavTarget, agentSettings }) => {
+const RETRY_DELAYS = [1000, 2000, 5000, 10000]; // ms for retries
+const MAX_RETRIES = RETRY_DELAYS.length;
+
+export const LiveAgent: React.FC<LiveAgentProps> = ({ appData, currentUser, setActiveView, setNavTarget, agentSettings, screenContext, setLiveAgentStatus }) => {
     const [isMuted, setIsMuted] = useState(false);
     const isMutedRef = useRef(isMuted);
-    useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
 
     const sessionPromiseRef = useRef<Promise<any> | null>(null);
-    const inputAudioContextRef = useRef<AudioContext | null>(null);
-    const outputAudioContextRef = useRef<AudioContext | null>(null);
-    const streamRef = useRef<MediaStream | null>(null);
-    const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
-    const mediaStreamSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
-    const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
+    const resourcesRef = useRef<{
+        stream: MediaStream | null;
+        inputCtx: AudioContext | null;
+        outputCtx: AudioContext | null;
+        scriptProcessor: ScriptProcessorNode | null;
+        mediaSource: MediaStreamAudioSourceNode | null;
+        audioSources: Set<AudioBufferSourceNode>;
+    }>({ stream: null, inputCtx: null, outputCtx: null, scriptProcessor: null, mediaSource: null, audioSources: new Set() });
+
     const nextStartTimeRef = useRef(0);
+    const retryCountRef = useRef(0);
+    const isUnmountingRef = useRef(false);
+    
+    useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
 
-    const createBlob = (data: Float32Array): Blob => {
-        const l = data.length;
-        const int16 = new Int16Array(l);
-        for (let i = 0; i < l; i++) {
-            int16[i] = data[i] * 32768;
-        }
-        return { data: encode(new Uint8Array(int16.buffer)), mimeType: 'audio/pcm;rate=16000' };
-    };
+    const cleanup = useCallback(() => {
+        sessionPromiseRef.current?.then(session => session.close()).catch(console.error);
+        resourcesRef.current.stream?.getTracks().forEach(track => track.stop());
+        resourcesRef.current.scriptProcessor?.disconnect();
+        resourcesRef.current.mediaSource?.disconnect();
+        resourcesRef.current.inputCtx?.close().catch(console.error);
+        resourcesRef.current.outputCtx?.close().catch(console.error);
+        resourcesRef.current.audioSources.forEach(s => s.stop());
+        resourcesRef.current.audioSources.clear();
+        sessionPromiseRef.current = null;
+    }, []);
 
-    useEffect(() => {
-        let ai: GoogleGenAI;
-        try {
-            // Use user-provided key if available, otherwise fallback to the default one from environment.
-            const apiKey = agentSettings.apiKey.trim() || process.env.API_KEY!;
-            if (!apiKey) throw new Error("API Key not found.");
-            ai = new GoogleGenAI({ apiKey });
-        } catch (e) {
-            console.error(e);
+    const connect = useCallback(async () => {
+        cleanup();
+        setLiveAgentStatus('connecting');
+
+        const getApiKey = (): string => {
+            const userKey = agentSettings.apiKey.trim();
+            if (userKey) return userKey;
+            
+            const envKey = (import.meta as any).env?.VITE_API_KEY || process.env.API_KEY;
+            if (envKey) return envKey;
+            
+            return 'AIzaSyBmLFI0_aMSaPQpxSgvl8PdFkURcfd7Kvo';
+        };
+        
+        const apiKey = getApiKey();
+        if (!apiKey) {
+            console.error("No API Key available for Live Agent.");
+            setLiveAgentStatus('error');
             return;
         }
-       
-        const availableViews = VIEWS.filter(v => !v.adminOnly || currentUser.pseudonym === 'admin').map(v => v.name);
         
-        const baseSystemInstruction = `
-            Você é 'Ed', um assistente de IA especialista na plataforma de estudos Procap-G200.
-            Seu objetivo é ajudar o usuário, ${currentUser.pseudonym}, a navegar e utilizar a plataforma de forma eficiente.
-            Você é amigável, prestativo e direto. Responda sempre em Português do Brasil.
-            Para interagir com a UI, você DEVE usar as funções disponíveis.
+        const ai = new GoogleGenAI({ apiKey });
 
-            **FLUXO 1: Acessar um item específico (ex: um caderno de questões)**
-            1.  **SEMPRE** comece usando a função 'findContent' para pesquisar o que o usuário pediu. Por exemplo, se o usuário diz "abrir caderno de SFN", você chama 'findContent({ viewName: 'Questões', searchTerm: 'SFN' })'.
-            2.  A função retornará uma lista de itens encontrados com seus IDs. Analise a lista.
-            3.  **ENTÃO**, chame a função 'navigateTo' usando o 'id' que você encontrou. Exemplo: 'navigateTo({ viewName: 'Questões', itemId: 'uuid-do-caderno-encontrado' })'.
-            4.  NUNCA chame 'navigateTo' com um nome de item; SEMPRE use o ID. Se 'findContent' não retornar nada, informe ao usuário que não encontrou.
+        try {
+            if (!navigator.mediaDevices?.getUserMedia) throw new Error('Audio recording not supported.');
 
-            **FLUXO 2: Filtrar uma tela por uma fonte (ex: flashcards de uma apostila)**
-            1.  Use 'findContent' na tela 'Fontes' para obter o nome exato da fonte. Ex: 'findContent({ viewName: 'Fontes', searchTerm: 'Apostila 2' })'.
-            2.  A função retornará o nome completo da fonte, como '(Apostila) 2.SFN e BCB...'.
-            3.  **ENTÃO**, chame 'navigateTo' para a tela desejada (ex: 'Flashcards'), passando o nome completo da fonte no parâmetro 'term'. Ex: 'navigateTo({ viewName: 'Flashcards', term: '(Apostila) 2.SFN e BCB...' })'.
+            resourcesRef.current.inputCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
+            resourcesRef.current.outputCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+            resourcesRef.current.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-            **FLUXO 3: Obter informações gerais (ex: listar cadernos disponíveis)**
-            1.  Use a função 'querySupabase' para consultar tabelas permitidas ('question_notebooks', 'sources').
-            2.  Exemplo: Para listar cadernos, chame 'querySupabase({ tableName: 'question_notebooks', columns: 'name' })'.
-            3.  Use o resultado para informar o usuário ou para tomar uma decisão (como escolher um caderno aleatório e navegar para ele usando o FLUXO 1).
-        `;
+            const availableViews = VIEWS.filter(v => !v.adminOnly || currentUser.pseudonym === 'admin').map(v => v.name);
+            const baseSystemInstruction = `Você é "Ed", um tutor de IA amigável e proativo para a plataforma de estudos Procap G200. Sua voz é masculina e você fala em português do Brasil, usando uma linguagem casual e encorajadora. Seu principal objetivo é ajudar o usuário a estudar, guiando-o pela plataforma e respondendo às suas dúvidas.
 
-        const finalSystemInstruction = [baseSystemInstruction, agentSettings.systemPrompt].filter(Boolean).join('\n\n');
-        
-        const findContent = (viewName: string, searchTerm: string): string => {
-            const normalizedSearchTerm = searchTerm.toLowerCase();
-            let results: { name: string; id: string }[] = [];
+**REGRAS CRÍTICAS DE OPERAÇÃO:**
+1.  **NUNCA INVENTE NOMES:** Você tem acesso aos dados reais da plataforma. Use suas ferramentas para verificar nomes e IDs antes de agir. Não presuma que um caderno de questões ou resumo com um nome que você imaginou existe.
+2.  **FLUXO DE NAVEGAÇÃO OBRIGATÓRIO (2 PASSOS):** Para abrir um item específico (ex: "abrir o caderno de SFN"), você DEVE seguir este processo:
+    - **PASSO 1: ACHAR O ID.** Use a função \`findContent\` ou \`querySupabase\` para encontrar o ID exato do item que o usuário pediu.
+    - **PASSO 2: NAVEGAR.** Use a função \`navigateTo\` com o ID que você encontrou no passo 1.
+    - **Exceção:** Se o usuário pedir para ir a uma tela genérica (ex: "ir para Resumos"), você pode usar \`navigateTo\` diretamente, sem um ID.
+3.  **USE O CONTEXTO DA TELA:** A seção "CONTEXTO DA TELA ATUAL" abaixo contém o texto que o usuário está vendo. Use essa informação para responder perguntas como "leia isso para mim" ou "me ajude com esta questão". Combine este contexto com seu conhecimento e, se necessário, com informações do Supabase para dar respostas completas.
+4.  **SEJA PROATIVO:** Não espere apenas por comandos. Sugira atividades. Se o usuário parece preso, ofereça uma dica ou sugira abrir um resumo relacionado. Ex: "Notei que você errou algumas questões sobre política monetária. Que tal abrirmos um resumo sobre o COPOM para revisar?"
 
-            if (viewName === 'Resumos') {
-                results = appData.sources.flatMap(s => s.summaries).filter(s => s.title.toLowerCase().includes(normalizedSearchTerm)).map(r => ({ name: r.title, id: r.id }));
-            } else if (viewName === 'Questões') {
-                results = appData.questionNotebooks.filter(n => n.name.toLowerCase().includes(normalizedSearchTerm)).map(n => ({ name: n.name, id: n.id }));
-            } else if (viewName === 'Fontes') {
-                results = appData.sources.filter(s => s.title.toLowerCase().includes(normalizedSearchTerm)).map(s => ({ name: s.title, id: s.id }));
-            }
+**FERRAMENTAS DISPONÍVEIS (FUNÇÕES):**
 
-            return JSON.stringify(results);
-        };
+*   \`navigateTo(viewName, id, subId, term)\`:
+    *   Uso: Mudar a tela do usuário.
+    *   \`viewName\`: Para qual tela ir (ex: "Questões", "Resumos", "Flashcards").
+    *   \`id\`: (Opcional) ID de um item principal para abrir (ex: ID de um caderno).
+    *   \`subId\`: (Opcional) ID de um sub-item para focar (ex: ID de uma questão específica dentro do caderno).
+    *   \`term\`: (Opcional) Termo para filtrar a tela (ex: nome de uma fonte em "Flashcards").
 
-        const navigateTo = (viewName: string, itemId?: string, subItemId?: string, term?: string) => {
-            const targetView = VIEWS.find(v => v.name.toLowerCase() === viewName.toLowerCase());
-            if (!targetView) return `Tela '${viewName}' não encontrada.`;
+*   \`findContent(viewName, searchTerm)\`:
+    *   Uso: Encontrar o ID de um item quando você só sabe o nome. **ESSENCIAL antes de usar \`navigateTo\` com um ID.**
+    *   Exemplo: O usuário diz "abrir o caderno de estudos do BCB". Você chama \`findContent(viewName: "Questões", searchTerm: "estudos do BCB")\` para obter o ID, e SÓ ENTÃO chama \`navigateTo(viewName: "Questões", id: "ID_RETORNADO")\`.
 
-            // O termo de filtro tem prioridade se ambos forem fornecidos.
-            if (term) {
-                setNavTarget({ viewName: targetView.name, term: term, id: undefined, subId: undefined });
-                return `Navegando para a tela '${viewName}' e filtrando por '${term}'.`;
-            } else if (itemId) {
-                 setNavTarget({ viewName: targetView.name, term: "", id: itemId, subId: subItemId });
-            }
-            setActiveView(targetView);
-            return `Navegando para ${itemId ? 'o item' : 'a tela'} '${viewName}'.`;
-        };
-        
-        const querySupabase = async (tableName: string, columns: string = '*', filterColumn?: string, filterValue?: string): Promise<string> => {
-            if (!supabase) return JSON.stringify({ error: "Supabase não conectado." });
-            const WHITELIST = ['question_notebooks', 'sources'];
-            if (!WHITELIST.includes(tableName)) return JSON.stringify({ error: `Acesso à tabela '${tableName}' não permitido.` });
+*   \`querySupabase(tableName)\`:
+    *   Uso: Obter uma lista de todos os itens disponíveis em uma categoria. Útil para responder "quais cadernos existem?".
+    *   \`tableName\`: Tabelas permitidas: 'question_notebooks', 'sources'.
+    *   Exemplo: O usuário pergunta "quais cadernos de questões temos?". Você chama \`querySupabase(tableName: 'question_notebooks')\` e lista os resultados para ele.
+
+**INFORMAÇÕES DISPONÍVEIS:**
+
+*   **Usuário Atual:** ${JSON.stringify({ pseudonym: currentUser.pseudonym, level: currentUser.level, xp: currentUser.xp })}
+*   **Visualizações Disponíveis:** ${JSON.stringify(availableViews)}
+
+---
+**CONTEXTO DA TELA ATUAL:**
+${screenContext || "Nenhum conteúdo específico na tela. O usuário está provavelmente em uma tela de listagem."}
+---`;
             
-            try {
-                let query = supabase.from(tableName).select(columns);
-                if (filterColumn && filterValue) {
-                    query = query.ilike(filterColumn, `%${filterValue}%`);
+            const finalSystemInstruction = [baseSystemInstruction, agentSettings.systemPrompt].filter(Boolean).join('\n\n');
+
+            const functionDeclarations: FunctionDeclaration[] = [
+                {
+                    name: 'navigateTo',
+                    description: 'Navega para uma visualização específica no aplicativo e, opcionalmente, foca em um item ou aplica um filtro.',
+                    parameters: {
+                        type: Type.OBJECT,
+                        properties: {
+                            viewName: { type: Type.STRING, description: 'O nome exato da visualização para navegar (ex: "Questões", "Resumos").' },
+                            id: { type: Type.STRING, description: '(Opcional) O ID do item específico para abrir (ex: o ID de um caderno de questões).' },
+                            subId: { type: Type.STRING, description: '(Opcional) O ID de um sub-item para focar (ex: o ID de uma questão dentro de um caderno).' },
+                            term: { type: Type.STRING, description: '(Opcional) Um termo para filtrar o conteúdo na visualização (ex: o nome de uma fonte para filtrar flashcards).' }
+                        },
+                        required: ['viewName']
+                    },
+                },
+                {
+                    name: 'findContent',
+                    description: 'Busca por um item de conteúdo específico (como um caderno de questões ou resumo) pelo nome e retorna seu ID. Use isso ANTES de navigateTo se você tiver um nome, mas não um ID.',
+                    parameters: {
+                        type: Type.OBJECT,
+                        properties: {
+                            viewName: { type: Type.STRING, description: 'A categoria do conteúdo a ser pesquisado (ex: "Questões" para cadernos, "Resumos" para resumos).' },
+                            searchTerm: { type: Type.STRING, description: 'O nome ou parte do nome do conteúdo a ser encontrado.' }
+                        },
+                        required: ['viewName', 'searchTerm']
+                    }
+                },
+                {
+                    name: 'querySupabase',
+                    description: 'Consulta uma tabela do banco de dados para obter uma lista de itens. Útil para descobrir o que está disponível. Use para listar cadernos, fontes, etc.',
+                    parameters: {
+                        type: Type.OBJECT,
+                        properties: {
+                            tableName: { type: Type.STRING, description: 'O nome da tabela a ser consultada (permitido: "question_notebooks", "sources").' },
+                        },
+                        required: ['tableName']
+                    }
                 }
-                const { data, error } = await query.limit(20);
-                if (error) throw error;
-                return JSON.stringify(data);
-            } catch (e: any) {
-                return JSON.stringify({ error: `Erro ao consultar Supabase: ${e.message}` });
-            }
-        };
+            ];
 
-        const findContentFunctionDeclaration: FunctionDeclaration = {
-            name: 'findContent',
-            description: 'Busca por conteúdo (resumos, cadernos, fontes, etc.) dentro de uma tela para obter seus nomes e IDs.',
-            parameters: {
-                type: Type.OBJECT,
-                properties: { viewName: { type: Type.STRING, description: `A tela para buscar. Opções: ${availableViews.join(', ')}.` }, searchTerm: { type: Type.STRING, description: 'O termo a ser buscado.' } },
-                required: ['viewName', 'searchTerm']
-            }
-        };
-
-        const navigateToFunctionDeclaration: FunctionDeclaration = {
-            name: 'navigateTo',
-            description: 'Navega para uma tela, para um item específico (usando seu ID) ou filtra uma tela (usando um termo).',
-            parameters: {
-                type: Type.OBJECT,
-                properties: {
-                    viewName: { type: Type.STRING, description: `O nome da tela. Opções: ${availableViews.join(', ')}.` },
-                    itemId: { type: Type.STRING, description: "Opcional. O ID do item para abrir (obtido via 'findContent')." },
-                    subItemId: { type: Type.STRING, description: "Opcional. O ID de um sub-item (ex: uma questão dentro de um caderno)." },
-                    term: { type: Type.STRING, description: "Opcional. Um termo para filtrar a tela (ex: o nome exato de uma fonte)." }
+            sessionPromiseRef.current = ai.live.connect({
+                model: 'gemini-2.5-flash-native-audio-preview-09-2025',
+                config: {
+                    responseModalities: [Modality.AUDIO],
+                    speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: agentSettings.voice } } },
+                    systemInstruction: finalSystemInstruction,
+                    tools: [{ functionDeclarations }],
                 },
-                required: ['viewName']
-            }
-        };
-        
-         const querySupabaseFunctionDeclaration: FunctionDeclaration = {
-            name: 'querySupabase',
-            description: "Consulta uma tabela no banco de dados Supabase para obter informações. Tabelas permitidas: 'question_notebooks', 'sources'.",
-            parameters: {
-                type: Type.OBJECT,
-                properties: {
-                    tableName: { type: Type.STRING, description: "O nome da tabela a ser consultada ('question_notebooks' ou 'sources')." },
-                    columns: { type: Type.STRING, description: "Opcional. As colunas a serem retornadas, separadas por vírgula (ex: 'id,name'). Padrão é '*' (todas as colunas)." },
-                    filterColumn: { type: Type.STRING, description: "Opcional. A coluna pela qual filtrar os resultados." },
-                    filterValue: { type: Type.STRING, description: "Opcional. O valor a ser usado no filtro (busca parcial, insensível a maiúsculas)." }
-                },
-                required: ['tableName']
-            }
-        };
-
-        const connect = async () => {
-            try {
-                if (!navigator.mediaDevices?.getUserMedia) throw new Error('Audio recording not supported.');
-                
-                inputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
-                outputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-                streamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
-
-                sessionPromiseRef.current = ai.live.connect({
-                    model: 'gemini-2.5-flash-native-audio-preview-09-2025',
-                    config: {
-                        responseModalities: [Modality.AUDIO],
-                        speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: agentSettings.voice } } },
-                        systemInstruction: finalSystemInstruction,
-                        tools: [{ functionDeclarations: [findContentFunctionDeclaration, navigateToFunctionDeclaration, querySupabaseFunctionDeclaration] }],
+                callbacks: {
+                    onopen: () => {
+                        setLiveAgentStatus('connected');
+                        retryCountRef.current = 0;
+                        
+                        const { inputCtx, stream } = resourcesRef.current;
+                        if (!inputCtx || !stream) return;
+                        
+                        resourcesRef.current.mediaSource = inputCtx.createMediaStreamSource(stream);
+                        resourcesRef.current.scriptProcessor = inputCtx.createScriptProcessor(4096, 1, 1);
+                        
+                        resourcesRef.current.scriptProcessor.onaudioprocess = (e) => {
+                            if (isMutedRef.current) return;
+                            const inputData = e.inputBuffer.getChannelData(0);
+                            const pcmBlob: Blob = { data: encode(new Uint8Array(new Int16Array(inputData.map(x => x * 32768)).buffer)), mimeType: 'audio/pcm;rate=16000' };
+                            sessionPromiseRef.current?.then((session) => session.sendRealtimeInput({ media: pcmBlob }));
+                        };
+                        resourcesRef.current.mediaSource.connect(resourcesRef.current.scriptProcessor);
+                        resourcesRef.current.scriptProcessor.connect(inputCtx.destination);
                     },
-                    callbacks: {
-                        onopen: () => {
-                            if (!inputAudioContextRef.current || !streamRef.current) return;
-                            mediaStreamSourceRef.current = inputAudioContextRef.current.createMediaStreamSource(streamRef.current);
-                            scriptProcessorRef.current = inputAudioContextRef.current.createScriptProcessor(4096, 1, 1);
-                            scriptProcessorRef.current.onaudioprocess = (e) => {
-                                if (isMutedRef.current) return;
-                                const inputData = e.inputBuffer.getChannelData(0);
-                                const pcmBlob = createBlob(inputData);
-                                sessionPromiseRef.current?.then((session) => session.sendRealtimeInput({ media: pcmBlob }));
-                            };
-                            mediaStreamSourceRef.current.connect(scriptProcessorRef.current);
-                            scriptProcessorRef.current.connect(inputAudioContextRef.current.destination);
-                        },
-                        onmessage: async (message: LiveServerMessage) => {
-                           if (message.toolCall) {
-                                for (const fc of message.toolCall.functionCalls) {
-                                    let result = "ok";
-                                    try {
-                                        if (fc.name === 'findContent') {
-                                            result = findContent(fc.args.viewName as string, fc.args.searchTerm as string);
-                                        } else if (fc.name === 'navigateTo') {
-                                            result = navigateTo(fc.args.viewName as string, fc.args.itemId as string, fc.args.subItemId as string, fc.args.term as string);
-                                        } else if (fc.name === 'querySupabase') {
-                                            result = await querySupabase(fc.args.tableName as string, fc.args.columns as string, fc.args.filterColumn as string, fc.args.filterValue as string);
+                    onmessage: async (message: LiveServerMessage) => {
+                         if (message.toolCall) {
+                            for (const fc of message.toolCall.functionCalls) {
+                                let result: any = { error: 'Função desconhecida' };
+                                const args = fc.args as any;
+
+                                try {
+                                    if (fc.name === 'navigateTo') {
+                                        const { viewName, id, subId, term } = args;
+                                        const targetView = VIEWS.find(v => v.name.toLowerCase() === viewName.toLowerCase());
+                                        if (targetView) {
+                                            setActiveView(targetView);
+                                            setTimeout(() => {
+                                                setNavTarget({ viewName: targetView.name, term, id, subId });
+                                            }, 50);
+                                            result = { success: `Navegando para ${targetView.name}.` };
+                                        } else {
+                                            result = { error: `Visualização "${viewName}" não encontrada.` };
                                         }
-                                    } catch (e: any) { result = `Erro: ${e.message}`; }
+                                    } else if (fc.name === 'findContent') {
+                                        const { viewName, searchTerm } = args;
+                                        const lowerSearchTerm = searchTerm.toLowerCase();
+                                        let foundItem: { id: string, name: string } | null = null;
+                                        
+                                        if (viewName.toLowerCase() === 'questões') {
+                                            const notebook = appData.questionNotebooks.find(n => n.name.toLowerCase().includes(lowerSearchTerm));
+                                            if (notebook) foundItem = { id: notebook.id, name: notebook.name };
+                                        } else if (viewName.toLowerCase() === 'resumos') {
+                                            const summary = appData.sources.flatMap(s => s.summaries).find(s => s.title.toLowerCase().includes(lowerSearchTerm));
+                                            if (summary) foundItem = { id: summary.id, name: summary.title };
+                                        }
+                                        
+                                        if (foundItem) {
+                                            result = foundItem;
+                                        } else {
+                                            result = { error: `Nenhum conteúdo encontrado em "${viewName}" com o termo "${searchTerm}".` };
+                                        }
+                                    } else if (fc.name === 'querySupabase') {
+                                        const { tableName } = args;
+                                        const allowedTables = ['question_notebooks', 'sources'];
+                                        if (allowedTables.includes(tableName) && supabase) {
+                                            const { data, error } = await supabase.from(tableName).select('id, name, title');
+                                            if (error) {
+                                                result = { error: `Erro ao consultar a tabela: ${error.message}` };
+                                            } else {
+                                                result = { items: data };
+                                            }
+                                        } else {
+                                            result = { error: `Acesso à tabela "${tableName}" não é permitido ou o banco de dados não está disponível.` };
+                                        }
+                                    }
+                                } catch (e: any) {
+                                    console.error(`Error executing tool call ${fc.name}:`, e);
+                                    result = { error: `Ocorreu um erro interno ao executar a função: ${e.message}` };
+                                }
 
-                                    sessionPromiseRef.current?.then((session) => {
-                                        session.sendToolResponse({ functionResponses: [{ id: fc.id, name: fc.name, response: { result } }] });
+                                sessionPromiseRef.current?.then((session) => {
+                                    session.sendToolResponse({
+                                        functionResponses: { id: fc.id, name: fc.name, response: { result: JSON.stringify(result) } }
                                     });
-                                }
+                                });
                             }
+                        }
 
-                            const audioData = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
-                            if (audioData && outputAudioContextRef.current) {
-                                const outputCtx = outputAudioContextRef.current;
-                                nextStartTimeRef.current = Math.max(nextStartTimeRef.current, outputCtx.currentTime);
-                                const audioBuffer = await decodeAudioData(decode(audioData), outputCtx, 24000, 1);
-                                const source = outputCtx.createBufferSource();
-                                source.buffer = audioBuffer;
-                                source.playbackRate.value = agentSettings.speed;
-                                source.connect(outputCtx.destination);
-                                source.addEventListener('ended', () => sourcesRef.current.delete(source));
-                                source.start(nextStartTimeRef.current);
-                                nextStartTimeRef.current += audioBuffer.duration / agentSettings.speed;
-                                sourcesRef.current.add(source);
-                            }
-
-                            if(message.serverContent?.interrupted) {
-                                for(const source of sourcesRef.current.values()) {
-                                    source.stop();
-                                    sourcesRef.current.delete(source);
-                                }
-                                nextStartTimeRef.current = 0;
-                            }
-                        },
-                        onerror: (e: ErrorEvent) => console.error('Live session error:', e),
-                        onclose: (e: CloseEvent) => {},
+                        const audioData = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
+                        if (audioData && resourcesRef.current.outputCtx) {
+                            const outputCtx = resourcesRef.current.outputCtx;
+                            nextStartTimeRef.current = Math.max(nextStartTimeRef.current, outputCtx.currentTime);
+                            const audioBuffer = await decodeAudioData(decode(audioData), outputCtx, 24000, 1);
+                            const source = outputCtx.createBufferSource();
+                            source.buffer = audioBuffer;
+                            source.playbackRate.value = agentSettings.speed;
+                            source.connect(outputCtx.destination);
+                            source.addEventListener('ended', () => resourcesRef.current.audioSources.delete(source));
+                            source.start(nextStartTimeRef.current);
+                            nextStartTimeRef.current += audioBuffer.duration / agentSettings.speed;
+                            resourcesRef.current.audioSources.add(source);
+                        }
                     },
-                });
-            } catch (error) {
-                console.error('Failed to connect to Live session:', error);
-            }
-        };
+                    onerror: (e: ErrorEvent) => {
+                        console.error('Live session error:', e);
+                        setLiveAgentStatus('error');
+                        if (!isUnmountingRef.current) handleReconnect();
+                    },
+                    onclose: (e: CloseEvent) => {
+                        setLiveAgentStatus('disconnected');
+                        if (!isUnmountingRef.current && e.code !== 1000) {
+                            handleReconnect();
+                        }
+                    },
+                },
+            });
+        } catch (error) {
+            console.error('Failed to connect to Live session:', error);
+            setLiveAgentStatus('error');
+            if (!isUnmountingRef.current) handleReconnect();
+        }
+    }, [cleanup, setLiveAgentStatus, agentSettings, currentUser, appData, screenContext, setActiveView, setNavTarget]);
+    
+    const handleReconnect = useCallback(() => {
+        if (retryCountRef.current < MAX_RETRIES) {
+            const delay = RETRY_DELAYS[retryCountRef.current];
+            setLiveAgentStatus('reconnecting');
+            console.log(`Connection lost. Reconnecting in ${delay / 1000}s... (Attempt ${retryCountRef.current + 1})`);
+            setTimeout(() => {
+                retryCountRef.current++;
+                connect();
+            }, delay);
+        } else {
+            console.error("Max retries reached. Could not reconnect.");
+            setLiveAgentStatus('error');
+        }
+    }, [connect, setLiveAgentStatus]);
 
+    useEffect(() => {
+        isUnmountingRef.current = false;
         connect();
-
         return () => {
-            sessionPromiseRef.current?.then(session => session.close()).catch(console.error);
-            streamRef.current?.getTracks().forEach(track => track.stop());
-            scriptProcessorRef.current?.disconnect();
-            mediaStreamSourceRef.current?.disconnect();
-            inputAudioContextRef.current?.close().catch(console.error);
-            outputAudioContextRef.current?.close().catch(console.error);
-            sourcesRef.current.forEach(s => s.stop());
-            sourcesRef.current.clear();
+            isUnmountingRef.current = true;
+            cleanup();
+            setLiveAgentStatus('inactive');
         };
-    }, [currentUser, setActiveView, setNavTarget, appData, agentSettings]);
+    }, [connect, cleanup, setLiveAgentStatus]);
 
     return (
         <div className="fixed bottom-24 right-4 z-[100] flex flex-col items-center gap-4">
