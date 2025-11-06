@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { MainContent } from './components/MainContent';
@@ -14,8 +13,13 @@ const App: React.FC = () => {
     const savedTheme = localStorage.getItem('procap_theme') as Theme | null;
     return savedTheme || 'light';
   });
-  const defaultView = VIEWS.find(v => v.name === 'Questões') || VIEWS[0];
-  const [activeView, setActiveView] = useState<View>(defaultView);
+  
+  const [activeView, setActiveView] = useState<View>(() => {
+      const savedViewName = localStorage.getItem('procap_lastView');
+      const savedView = VIEWS.find(v => v.name === savedViewName);
+      return savedView || VIEWS.find(v => v.name === 'Questões') || VIEWS[0];
+  });
+
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [appData, setAppData] = useState<AppData>(INITIAL_APP_DATA);
@@ -99,6 +103,10 @@ const App: React.FC = () => {
     }
     localStorage.setItem('procap_theme', theme);
   }, [theme]);
+  
+  useEffect(() => {
+      localStorage.setItem('procap_lastView', activeView.name);
+  }, [activeView]);
 
   const handleLogin = async (pseudonym: string, password?: string): Promise<string | null> => {
     // Admin Login (local)
@@ -160,8 +168,13 @@ const App: React.FC = () => {
   
   const handleLogout = () => {
       setCurrentUser(null);
-      localStorage.removeItem('procap_lastUserId');
+      const defaultView = VIEWS.find(v => v.name === 'Questões') || VIEWS[0];
       setActiveView(defaultView);
+      // Clear all session-related data
+      localStorage.removeItem('procap_lastUserId');
+      localStorage.removeItem('procap_lastView');
+      localStorage.removeItem('procap_lastNotebookId');
+      localStorage.removeItem('procap_lastQuestionIndex');
   };
   
   const updateUser = async (updatedUser: User) => {

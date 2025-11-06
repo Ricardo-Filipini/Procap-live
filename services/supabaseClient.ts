@@ -285,6 +285,19 @@ export const getInitialData = async (): Promise<{ data: AppData; error: string |
             fetchTable('xp_events', { column: 'created_at', options: { ascending: false } }),
         ]);
 
+        // Recalculate and synchronize total XP for all users from xp_events table
+        const totalXpMap = new Map<string, number>();
+        xp_events.forEach((event: XpEvent) => {
+            const currentXp = totalXpMap.get(event.user_id) || 0;
+            totalXpMap.set(event.user_id, currentXp + event.amount);
+        });
+
+        const syncedUsers = users.map((user: User) => ({
+            ...user,
+            xp: totalXpMap.get(user.id) || 0,
+        }));
+
+
         // Nest content under sources
         const sourcesWithContent = sources.map((source: Source) => ({
             ...source,
@@ -304,7 +317,7 @@ export const getInitialData = async (): Promise<{ data: AppData; error: string |
         }));
 
         const data: AppData = {
-            users,
+            users: syncedUsers, // Use the synced users
             sources: sourcesWithContent,
             linksFiles,
             chatMessages,

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AppData, User, ChatMessage, MainContentProps } from '../../types';
 import { PaperAirplaneIcon, MinusIcon, PlusIcon } from '../Icons';
@@ -328,12 +327,13 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
     const [leaderboardFilter, setLeaderboardFilter] = useState<'geral' | 'diaria' | 'periodo' | 'hora'>('geral');
 
     const filteredLeaderboard = useMemo(() => {
-        const now = new Date();
-
         if (leaderboardFilter === 'geral') {
+            // user.xp is now synced with all xp_events on initial load,
+            // so we can use it as the source of truth for the overall leaderboard.
             return [...appData.users].sort((a, b) => b.xp - a.xp);
         }
 
+        const now = new Date();
         let startTime: Date;
 
         switch (leaderboardFilter) {

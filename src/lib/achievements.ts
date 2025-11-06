@@ -1,5 +1,4 @@
 
-
 import { AppData, User } from '../types';
 import { ACHIEVEMENTS } from '../constants';
 
@@ -36,10 +35,6 @@ export const checkAndAwardAchievements = (user: User, appData: AppData): User =>
 
     const iaInteractions = appData.chatMessages.filter(m => m.author === user.pseudonym && (m.text.toLowerCase().includes('@ia') || m.text.toLowerCase().includes('@ed'))).length;
     checkCategory(ACHIEVEMENTS.IA_INTERACTIONS, iaInteractions);
-
-    const caseStudiesCompleted = appData.userCaseStudyInteractions.filter(i => i.user_id === user.id && i.completed_at !== null).length;
-    checkCategory(ACHIEVEMENTS.CASE_STUDIES_COMPLETED, caseStudiesCompleted);
-    checkCategory(ACHIEVEMENTS.XP_EARNED, user.xp);
     
     if (newAchievements.size > user.achievements.length) {
         return { ...user, achievements: Array.from(newAchievements).sort() };

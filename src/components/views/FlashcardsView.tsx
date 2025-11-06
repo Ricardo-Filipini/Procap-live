@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { MainContentProps } from '../../types';
 import { Flashcard, Comment, ContentType } from '../../types';
@@ -50,36 +49,16 @@ export const FlashcardsView: React.FC<FlashcardsViewProps> = ({ allItems, appDat
     } = useContentViewController(itemsToDisplay, currentUser, appData, contentType, 'source');
 
     const finalItemsToRender = useMemo(() => {
+        const items = Array.isArray(processedItems) ? processedItems : Object.values(processedItems).flat();
         if (flipped && filter === 'unread') {
             const flippedCard = allItems.find(item => item.id === flipped);
-            if (flippedCard) {
-                const isGrouped = !Array.isArray(processedItems);
-                const flatItems = isGrouped ? Object.values(processedItems as Record<string, any[]>).flat() : processedItems;
-
-                if (!flatItems.some(item => item.id === flippedCard.id)) {
-                    // Card was filtered out
-                    if (!isGrouped) {
-                        return [...(processedItems as any[]), flippedCard];
-                    } else {
-                        // Find the correct group for the flipped card
-                        let groupKey: string;
-                        if (sort === 'subject') groupKey = flippedCard.source?.materia || 'Outros';
-                        else if (sort === 'user') groupKey = flippedCard.user_id || 'Desconhecido';
-                        else groupKey = flippedCard.source?.title || 'Fonte Desconhecida';
-                        
-                        const newProcessedItems = { ...processedItems } as Record<string, any[]>;
-                        if (newProcessedItems[groupKey]) {
-                            newProcessedItems[groupKey] = [...newProcessedItems[groupKey], flippedCard];
-                        } else {
-                            newProcessedItems[groupKey] = [flippedCard];
-                        }
-                        return newProcessedItems;
-                    }
-                }
+            if (flippedCard && !items.some(item => item.id === flipped)) {
+                // If the flipped card was filtered out, add it back temporarily
+                return [...items, flippedCard];
             }
         }
-        return processedItems;
-    }, [processedItems, flipped, filter, allItems, sort]);
+        return processedItems; // Return original if no special condition
+    }, [processedItems, flipped, filter, allItems]);
 
 
     const handleToggleGroup = (groupKey: string) => {
