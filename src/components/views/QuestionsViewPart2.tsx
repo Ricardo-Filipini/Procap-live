@@ -477,10 +477,8 @@ export const NotebookDetailView: React.FC<{
     const [userAnswers, setUserAnswers] = useState<Map<string, UserQuestionAnswer>>(new Map());
     const notebookId = notebook === 'all' ? 'all_questions' : notebook.id;
     
-    // This new useEffect will run when the notebook view is opened, fetching the latest answers.
     useEffect(() => {
         const fetchFreshAnswers = async () => {
-            // supabase is imported from supabaseClient
             if (!supabase) return;
             
             const { data, error } = await supabase
@@ -492,10 +490,7 @@ export const NotebookDetailView: React.FC<{
             if (error) {
                 console.error("Failed to fetch fresh answers for notebook:", error);
             } else if (data) {
-                // Update the global appData state with the freshest data.
-                // This will trigger the other useEffect to update the local 'userAnswers' map.
                 setAppData(prev => {
-                    // Use a Map to efficiently merge the fresh data, overwriting any stale local data.
                     const answerMap = new Map(prev.userQuestionAnswers.map(a => [a.id, a]));
                     data.forEach(freshAnswer => {
                         answerMap.set(freshAnswer.id, freshAnswer);
@@ -508,12 +503,11 @@ export const NotebookDetailView: React.FC<{
             }
         };
         
-        // Only run the fetch if we have a valid user and notebook.
         if (currentUser?.id && notebookId) {
             fetchFreshAnswers();
         }
 
-    }, [currentUser.id, notebookId, setAppData]); // Re-run if user or notebook changes.
+    }, [currentUser.id, notebookId, setAppData]);
 
     useEffect(() => {
         const answersForNotebook = appData.userQuestionAnswers.filter(
@@ -540,7 +534,6 @@ export const NotebookDetailView: React.FC<{
     
     const questionsInNotebook = useMemo(() => {
         if (notebook === 'all') return allQuestions;
-        // FIX: In `questionsInNotebook` useMemo, used `Array.isArray` to safely handle `notebook.question_ids` and prevent potential runtime errors, improving type safety.
         const questionIds = Array.isArray(notebook.question_ids) ? notebook.question_ids.map(String) : [];
         const idSet = new Set(questionIds);
         return allQuestions.filter(q => idSet.has(q.id));
@@ -566,7 +559,7 @@ export const NotebookDetailView: React.FC<{
         }
 
         const sortGroup = (group: (Question & { user_id: string, created_at: string})[]) => {
-            const groupToSort = [...group]; // Create a mutable copy to sort
+            const groupToSort = [...group];
             switch (questionSortOrder) {
                 case 'temp':
                     groupToSort.sort((a, b) => (b.hot_votes - b.cold_votes) - (a.hot_votes - a.cold_votes));
@@ -625,7 +618,6 @@ export const NotebookDetailView: React.FC<{
 
     }, [questionsInNotebook, questionSortOrder, prioritizeApostilas, notebook, stableRandomSort, showWrongOnly, appData.userQuestionAnswers, currentUser.id, notebookId]);
 
-    // Effect to handle navigation to a specific question
     useEffect(() => {
         if (questionIdToFocus && sortedQuestions.length > 0) {
             const index = sortedQuestions.findIndex(q => q.id === questionIdToFocus);
@@ -705,7 +697,6 @@ export const NotebookDetailView: React.FC<{
 
         const wasAnsweredBefore = userAnswers.has(currentQuestion.id);
         if ((isCorrect || newWrongAnswers.size >= 3) && !wasAnsweredBefore) {
-            // FIX: Use spread operator directly on the Set, which is more idiomatic and avoids potential type inference issues with Array.from.
             const attempts: string[] = [...newWrongAnswers, option];
             const isCorrectFirstTry = attempts.length === 1 && isCorrect;
             const xpMap = [10, 5, 2, 0];

@@ -52,28 +52,30 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ allItems, appData,
 
     useEffect(() => {
         const fetchAllUserAnswers = async () => {
-            if (!supabase || !currentUser) return;
+            if (!supabase) return;
 
             const { data, error } = await supabase
                 .from('user_question_answers')
-                .select('*')
-                .eq('user_id', currentUser.id);
+                .select('*');
 
             if (error) {
                 console.error("Failed to fetch all user answers:", error);
             } else if (data) {
                 setAppData(prev => {
-                    const otherUsersAnswers = prev.userQuestionAnswers.filter(a => a.user_id !== currentUser.id);
+                    const answerMap = new Map(prev.userQuestionAnswers.map(a => [a.id, a]));
+                    data.forEach(freshAnswer => {
+                        answerMap.set(freshAnswer.id, freshAnswer);
+                    });
                     return {
                         ...prev,
-                        userQuestionAnswers: [...otherUsersAnswers, ...data]
+                        userQuestionAnswers: Array.from(answerMap.values())
                     };
                 });
             }
         };
 
         fetchAllUserAnswers();
-    }, [currentUser.id, setAppData]);
+    }, [setAppData]);
 
     const handleNotebookInteractionUpdate = async (notebookId: string, update: Partial<UserNotebookInteraction>) => {
         let newInteractions = [...appData.userNotebookInteractions];
