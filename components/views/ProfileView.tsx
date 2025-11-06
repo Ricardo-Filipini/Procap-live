@@ -234,8 +234,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ currentUser: user, app
                         </div>
                         <div className="space-y-2">
                         {userPlans.length > 0 ? (
-                            userPlans.map((plan, index) => (
-                                <details key={plan.id} open={index === 0} className="bg-background-light dark:bg-background-dark p-3 rounded-lg">
+                            userPlans.map((plan) => (
+                                <details key={plan.id} className="bg-background-light dark:bg-background-dark p-3 rounded-lg">
                                     <summary className="font-semibold cursor-pointer">Plano de {new Date(plan.created_at).toLocaleString('pt-BR')}</summary>
                                     <div className="mt-2 pt-2 border-t border-border-light dark:border-border-dark">
                                         {parseAndRenderMessage(plan.content)}

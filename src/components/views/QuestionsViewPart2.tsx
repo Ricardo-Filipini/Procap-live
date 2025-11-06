@@ -591,7 +591,8 @@ export const NotebookDetailView: React.FC<{
                         const questionIds: string[] = Array.isArray(notebook.question_ids) ? (notebook.question_ids as any[]).filter((id): id is string => typeof id === 'string') : [];
                         const orderMap = new Map(questionIds.map((id, index) => [id, index]));
                         // FIX: Removed explicit types for `a` and `b` to allow TypeScript to correctly infer them from the array, which should resolve the 'unknown' type error.
-                        groupToSort.sort((a, b) => {
+                        // FIX: Explicitly typing the sort parameters `a` and `b` as `Question` resolves the `unknown` type error for `a.id` and `b.id`.
+                        groupToSort.sort((a: Question, b: Question) => {
                             const orderA = orderMap.get(a.id) ?? Infinity;
                             const orderB = orderMap.get(b.id) ?? Infinity;
                             if (orderA < orderB) return -1;

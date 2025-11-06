@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AppData, User, ChatMessage, MainContentProps } from '../../types';
 import { PaperAirplaneIcon, MinusIcon, PlusIcon } from '../Icons';
@@ -331,8 +332,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
 
     const filteredLeaderboard = useMemo(() => {
         if (leaderboardFilter === 'geral') {
-            // user.xp is now synced with all xp_events on initial load,
-            // so we can use it as the source of truth for the overall leaderboard.
+            // For 'geral', use the total XP already synced in the user objects, which is the source of truth.
             return [...appData.users].sort((a, b) => b.xp - a.xp);
         }
 
@@ -362,7 +362,6 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
         );
         
         const userXpMap = new Map<string, number>();
-
         xpEventsInPeriod.forEach(event => {
             const currentXp = userXpMap.get(event.user_id) || 0;
             userXpMap.set(event.user_id, currentXp + event.amount);
