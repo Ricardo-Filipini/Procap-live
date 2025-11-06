@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { AppData, User, ContentType, UserContentInteraction, Source, Summary, Flashcard, Question, ScheduleEvent, LinkFile } from '../types';
 import { upsertUserContentInteraction, incrementContentVote, updateUser as supabaseUpdateUser, addGeneratedContent, logXpEvent } from '../services/supabaseClient';
@@ -74,7 +75,8 @@ export const handleInteractionUpdate = async (
         });
     }
 
-    const userWithNewXp = { ...currentUser, xp: currentUser.xp + xpGained };
+    // FIX: Defensively cast `currentUser.xp` to a number before performing addition to prevent runtime errors with potentially malformed data.
+    const userWithNewXp = { ...currentUser, xp: (Number(currentUser.xp) || 0) + xpGained };
     const userWithNewAchievements = checkAndAwardAchievements(userWithNewXp, tempAppData);
 
     if (userWithNewAchievements.xp !== currentUser.xp || userWithNewAchievements.achievements.length !== currentUser.achievements.length) {
@@ -182,7 +184,8 @@ export const handleVoteUpdate = async (
             const author = appData.users.find(u => u.id === authorId);
             if (author) {
                 const xpChange = (type === 'hot' ? 1 : -1) * increment;
-                const updatedAuthor = { ...author, xp: Math.max(0, author.xp + xpChange) };
+                // FIX: Defensively cast `author.xp` to a number before performing addition to prevent runtime errors with potentially malformed data.
+                const updatedAuthor = { ...author, xp: Math.max(0, (Number(author.xp) || 0) + xpChange) };
                 
                 dbPromises.push(supabaseUpdateUser(updatedAuthor).then(result => {
                     if (result) {

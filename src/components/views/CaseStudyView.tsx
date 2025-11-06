@@ -1,5 +1,3 @@
-
-
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { MainContentProps } from '../../types';
 import { CaseStudy, DecisionOption, UserCaseStudyInteraction, Comment, Source, UserContentInteraction } from '../../types';

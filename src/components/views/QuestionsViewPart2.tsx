@@ -1,6 +1,3 @@
-
-
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { MainContentProps } from '../../types';
 import { Question, Comment, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer } from '../../types';
@@ -535,6 +532,7 @@ export const NotebookDetailView: React.FC<{
     const [shuffleTrigger, setShuffleTrigger] = useState(0);
     const [prioritizeApostilas, setPrioritizeApostilas] = useState(notebook === 'all');
     const [showWrongOnly, setShowWrongOnly] = useState(false);
+    const prevShowWrongOnlyRef = useRef(showWrongOnly);
     
     const questionsInNotebook = useMemo(() => {
         if (notebook === 'all') return allQuestions;
@@ -554,6 +552,9 @@ export const NotebookDetailView: React.FC<{
     const prevQuestionSortOrder = useRef(questionSortOrder);
 
     useEffect(() => {
+        const enablingWrongOnly = !prevShowWrongOnlyRef.current && showWrongOnly;
+        prevShowWrongOnlyRef.current = showWrongOnly;
+
         const sortChanged = prevQuestionSortOrder.current !== questionSortOrder;
         prevQuestionSortOrder.current = questionSortOrder;
 
@@ -584,14 +585,8 @@ export const NotebookDetailView: React.FC<{
                 case 'default':
                 default:
                     if (notebook !== 'all') {
-                        // FIX: Added a filter for boolean values and a cast to any[] to robustly handle potentially malformed data from the database, preventing runtime errors and satisfying TypeScript's type checker.
-                        // FIX: Explicitly typed `questionIds` to `string[]` to avoid type inference issues.
-                        // FIX: Use a type guard to safely filter notebook.question_ids, ensuring it's a clean array of strings.
-                        // FIX: Cast `notebook.question_ids` to `any[]` to force TypeScript to re-evaluate the type of `id` in the filter, resolving potential type inference issues with data from the database.
                         const questionIds: string[] = Array.isArray(notebook.question_ids) ? (notebook.question_ids as any[]).filter((id): id is string => typeof id === 'string') : [];
                         const orderMap = new Map(questionIds.map((id, index) => [id, index]));
-                        // FIX: Removed explicit types for `a` and `b` to allow TypeScript to correctly infer them from the array, which should resolve the 'unknown' type error.
-                        // FIX: Explicitly typing the sort parameters `a` and `b` as `Question` resolves the `unknown` type error for `a.id` and `b.id`.
                         groupToSort.sort((a: Question, b: Question) => {
                             const orderA = orderMap.get(a.id) ?? Infinity;
                             const orderB = orderMap.get(b.id) ?? Infinity;
@@ -619,44 +614,36 @@ export const NotebookDetailView: React.FC<{
         }
         
         const previousQuestionId = currentQuestion?.id;
-        const isFilteredOut = previousQuestionId && !finalSortedQuestions.some(q => q.id === previousQuestionId);
 
-        if (isFilteredOut && isCompleted) {
-            // The user just answered the question, and it was filtered out (e.g., by "show wrong only").
-            // We do nothing here, keeping the current question on screen so the user can see the explanation.
-            // The list will sync up when they navigate to a new question.
-            return;
-        }
-
-        setSortedQuestions(finalSortedQuestions);
-        
-        if (sortChanged) {
-            // A sort was explicitly requested. Per user request, we keep the current index.
-            const boundedIndex = Math.min(currentQuestionIndex, Math.max(0, finalSortedQuestions.length - 1));
-            if (boundedIndex !== currentQuestionIndex) {
-                setCurrentQuestionIndex(boundedIndex);
-            }
+        if (enablingWrongOnly) {
+            setSortedQuestions(finalSortedQuestions);
+            setCurrentQuestionIndex(0);
         } else {
-            // This is a filter change or an answer submission (that didn't get filtered out).
-            // We want to stay on the same question if possible.
-            if (previousQuestionId) {
-                const newIndex = finalSortedQuestions.findIndex(q => q.id === previousQuestionId);
-                if (newIndex !== -1) {
-                    // The question is still in the new list, so we make sure we are on it.
-                    if (currentQuestionIndex !== newIndex) {
+            const isFilteredOut = previousQuestionId && !finalSortedQuestions.some(q => q.id === previousQuestionId);
+
+            if (isFilteredOut && isCompleted && !sortChanged) {
+                return;
+            }
+
+            setSortedQuestions(finalSortedQuestions);
+            
+            if (sortChanged) {
+                const boundedIndex = Math.min(currentQuestionIndex, Math.max(0, finalSortedQuestions.length - 1));
+                setCurrentQuestionIndex(boundedIndex);
+            } else {
+                if (previousQuestionId) {
+                    const newIndex = finalSortedQuestions.findIndex(q => q.id === previousQuestionId);
+                    if (newIndex !== -1) {
                         setCurrentQuestionIndex(newIndex);
+                    } else {
+                        const boundedIndex = Math.min(currentQuestionIndex, Math.max(0, finalSortedQuestions.length - 1));
+                        setCurrentQuestionIndex(boundedIndex);
                     }
-                } else {
-                     // The question is gone for a reason other than just being answered.
-                     // We must move to a valid index.
-                     const boundedIndex = Math.min(currentQuestionIndex, Math.max(0, finalSortedQuestions.length - 1));
-                     setCurrentQuestionIndex(boundedIndex);
+                } else if (finalSortedQuestions.length > 0) {
+                    setCurrentQuestionIndex(0);
                 }
-            } else if (finalSortedQuestions.length > 0) {
-                 setCurrentQuestionIndex(0);
             }
         }
-
     }, [questionsInNotebook, questionSortOrder, prioritizeApostilas, notebook, stableRandomSort, showWrongOnly, appData.userQuestionAnswers, currentUser.id, notebookId]);
 
 
@@ -671,6 +658,13 @@ export const NotebookDetailView: React.FC<{
     }, [questionIdToFocus, sortedQuestions]);
 
     const currentQuestion = sortedQuestions[currentQuestionIndex];
+
+    // Save the current question ID to local storage whenever it changes.
+    useEffect(() => {
+        if (currentQuestion) {
+            localStorage.setItem('procap_lastQuestionId', currentQuestion.id);
+        }
+    }, [currentQuestion]);
     
     useEffect(() => {
         if (!currentQuestion) return;
@@ -779,7 +773,8 @@ export const NotebookDetailView: React.FC<{
             newStats.topicPerformance[topic].total += 1;
             if (isCorrectFirstTry) newStats.topicPerformance[topic].correct += 1;
             
-            const userWithNewStats = { ...currentUser, stats: newStats, xp: currentUser.xp + xpGained };
+            // FIX: Defensively cast `currentUser.xp` to a number before performing addition to prevent runtime errors with potentially malformed data.
+            const userWithNewStats = { ...currentUser, stats: newStats, xp: (Number(currentUser.xp) || 0) + xpGained };
             const finalUser = checkAndAwardAchievements(userWithNewStats, appData);
             updateUser(finalUser);
         }

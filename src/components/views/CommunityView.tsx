@@ -161,7 +161,8 @@ const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dis
 
         if (author && !isOwnContent) {
             const xpChange = (type === 'hot' ? 1 : -1) * increment;
-            const updatedAuthor = { ...author, xp: author.xp + xpChange };
+            // FIX: Defensively cast `author.xp` to a number before performing addition.
+            const updatedAuthor = { ...author, xp: (Number(author.xp) || 0) + xpChange };
             const result = await supabaseUpdateUser(updatedAuthor);
             if (result) {
                 logXpEvent(author.id, xpChange, 'CHAT_VOTE_RECEIVED', messageId).then(newEvent => {

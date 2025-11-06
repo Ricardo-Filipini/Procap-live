@@ -476,7 +476,8 @@ export const SourcesView: React.FC<SourcesViewProps> = ({ appData, setAppData, c
             const author = appData.users.find(u => u.id === source.user_id);
             if (author) {
                 const xpChange = (type === 'hot' ? 1 : -1) * increment;
-                const updatedAuthor = { ...author, xp: Math.max(0, author.xp + xpChange) };
+                // FIX: Defensively cast `author.xp` to a number before performing addition to prevent runtime errors with potentially malformed data.
+                const updatedAuthor = { ...author, xp: Math.max(0, (Number(author.xp) || 0) + xpChange) };
                 const result = await supabaseUpdateUser(updatedAuthor);
                 if (result) {
                     setAppData(prev => ({ ...prev, users: prev.users.map(u => u.id === result.id ? result : u) }));

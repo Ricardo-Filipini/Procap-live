@@ -144,7 +144,8 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ allItems, appData,
                 const author = appData.users.find(u => u.id === authorId);
                 if (author) {
                     const xpChange = (type === 'hot' ? 1 : -1) * increment;
-                    const updatedAuthor = { ...author, xp: author.xp + xpChange };
+                    // FIX: Defensively cast `author.xp` to a number before performing addition to prevent runtime errors with potentially malformed data.
+                    const updatedAuthor = { ...author, xp: (Number(author.xp) || 0) + xpChange };
                     const result = await supabaseUpdateUser(updatedAuthor);
                     if (result) {
                         setAppData(prev => ({...prev, users: prev.users.map(u => u.id === result.id ? result : u)}));

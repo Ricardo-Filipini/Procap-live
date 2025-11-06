@@ -138,7 +138,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ currentUser: user, app
 
                 setAppData(prev => ({ ...prev, studyPlans: [newPlan, ...prev.studyPlans] }));
 
-                const updatedUser = { ...user, xp: user.xp + xpGained };
+                // FIX: Defensively cast `user.xp` to a number before performing addition to prevent runtime errors with potentially malformed data.
+                const updatedUser = { ...user, xp: (Number(user.xp) || 0) + xpGained };
                 updateUser(updatedUser);
 
                 // Log the XP event
