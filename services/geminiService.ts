@@ -1,34 +1,29 @@
 import { GoogleGenAI, GenerateContentResponse, Type, Part, Modality } from "@google/genai";
 import { ContentType, Question, User, UserContentInteraction, UserQuestionAnswer, Source } from '../types';
 
-// Fallback keys to be used if no environment key is set.
-const API_KEY_FALLBACKS = [
-    'AIzaSyDR0Hs4OQz2Pss1_DiviQQ1Lzpa_cGAhbQ',
-    'AIzaSyB2VifmEfcRyCNegusrO2sQLlDNBm-j6yw',
-    'AIzaSyCgchi49OE_ysRiimeQjxM5rG0NSKotycE',
-    'AIzaSyA0U7iJOnWHajq2aanwYsT-IpwRlZk8OOU',
-];
-
-// Tenta usar a variável de ambiente VITE_API_KEY do build, se não existir, usa process.env.API_KEY, e por último uma chave de fallback aleatória.
-// Fix: Cast `import.meta` to `any` to access the `env` property.
-const API_KEY = (import.meta as any).env?.VITE_API_KEY || process.env.API_KEY || API_KEY_FALLBACKS[Math.floor(Math.random() * API_KEY_FALLBACKS.length)];
-
-
-if (!API_KEY) {
-  console.warn("API_KEY not found. Gemini API features will be disabled.");
-}
-
-const ai = new GoogleGenAI({ apiKey: API_KEY! });
-
-const getModel = () => {
-    if (!API_KEY) {
-        throw new Error("API_KEY not set.");
+// New function to get the AI client dynamically.
+// It prioritizes the user-provided key, then environment variables.
+// It NO LONGER uses hardcoded fallback keys.
+const getAiClient = (apiKey?: string): GoogleGenAI | null => {
+    const finalApiKey = apiKey?.trim() || (import.meta as any).env?.VITE_API_KEY || process.env.API_KEY;
+    if (!finalApiKey || finalApiKey.trim() === '') {
+        console.warn("Chave de API do Gemini não encontrada. Por favor, configure uma nas Configurações do Agente IA ou como uma variável de ambiente.");
+        return null;
     }
-    return ai.models;
-}
+    return new GoogleGenAI({ apiKey: finalApiKey });
+};
 
-export const getSimpleChatResponse = async (history: { role: string, parts: Part[] }[], newMessage: string): Promise<string> => {
-  if (!API_KEY) {
+const handleApiError = (error: unknown, defaultMessage: string): { error: string } => {
+    console.error(defaultMessage, error);
+    if (error instanceof Error && (error.message.includes('API key not valid') || error.message.includes('PERMISSION_DENIED') || error.message.includes('leaked'))) {
+        return { error: "Sua chave de API é inválida ou foi revogada. Por favor, verifique-a nas Configurações do Agente IA." };
+    }
+    return { error: defaultMessage };
+};
+
+export const getSimpleChatResponse = async (history: { role: string, parts: Part[] }[], newMessage: string, apiKey?: string): Promise<string> => {
+  const ai = getAiClient(apiKey);
+  if (!ai) {
     return "A funcionalidade da IA está desabilitada. Configure a API Key.";
   }
   try {
@@ -42,19 +37,23 @@ export const getSimpleChatResponse = async (history: { role: string, parts: Part
     return response.text;
   } catch (error) {
     console.error("Error calling Gemini API:", error);
+    if (error instanceof Error && (error.message.includes('API key not valid') || error.message.includes('PERMISSION_DENIED'))) {
+        return "A chave de API configurada parece ser inválida. Verifique-a nas Configurações do Agente IA.";
+    }
     return "Desculpe, ocorreu um erro ao me comunicar com a IA.";
   }
 };
 
 
-export const generateQuestionsFromTopic = async (topic: string): Promise<any> => {
-    if (!API_KEY) {
+export const generateQuestionsFromTopic = async (topic: string, apiKey?: string): Promise<any> => {
+    const ai = getAiClient(apiKey);
+    if (!ai) {
         return { error: "A funcionalidade da IA está desabilitada. Configure a API Key." };
     }
     try {
         const prompt = `Gere 3 questões de múltipla escolha sobre o tópico "${topic}" para um concurso do Banco Central. Cada questão deve ter 5 opções, uma resposta correta, uma breve explicação e duas dicas úteis e sutis. As dicas devem ajudar no raciocínio para chegar à resposta correta, mas NUNCA devem entregar a resposta de forma óbvia ou direta. Siga estritamente o schema JSON fornecido.`;
 
-        const response: GenerateContentResponse = await getModel().generateContent({
+        const response: GenerateContentResponse = await ai.models.generateContent({
             model: "gemini-2.5-flash",
             contents: prompt,
             config: {
@@ -82,7 +81,6 @@ export const generateQuestionsFromTopic = async (topic: string): Promise<any> =>
             },
         });
 
-        // Fix: Ensure response.text exists before parsing.
         if (response.text) {
           return JSON.parse(response.text);
         }
@@ -90,13 +88,13 @@ export const generateQuestionsFromTopic = async (topic: string): Promise<any> =>
 
 
     } catch (error) {
-        console.error("Error generating questions with Gemini API:", error);
-        return { error: "Não foi possível gerar as questões." };
+        return handleApiError(error, "Não foi possível gerar as questões.");
     }
 };
 
-export const processAndGenerateAllContentFromSource = async (text: string, existingTopics: {materia: string, topic: string}[], userPrompt?: string): Promise<any> => {
-    if (!API_KEY) return { error: "A funcionalidade da IA está desabilitada." };
+export const processAndGenerateAllContentFromSource = async (text: string, existingTopics: {materia: string, topic: string}[], userPrompt?: string, apiKey?: string): Promise<any> => {
+    const ai = getAiClient(apiKey);
+    if (!ai) return { error: "A funcionalidade da IA está desabilitada. Configure uma chave de API válida." };
 
     const prompt = `
     A partir do texto-fonte fornecido, atue como um especialista em material de estudo para concursos, realizando uma análise profunda e detalhada do conteúdo.
@@ -191,25 +189,24 @@ export const processAndGenerateAllContentFromSource = async (text: string, exist
     };
 
     try {
-        const response: GenerateContentResponse = await getModel().generateContent({
+        const response: GenerateContentResponse = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
             config: { responseMimeType: "application/json", responseSchema: schema },
         });
-        // Fix: Ensure response.text exists before parsing.
         if (response.text) {
           return JSON.parse(response.text);
         }
         return { error: `Não foi possível gerar o conteúdo completo a partir da fonte.` };
     } catch (error) {
-        console.error(`Error processing source content with Gemini API:`, error);
-        return { error: `Não foi possível gerar o conteúdo completo a partir da fonte.` };
+        return handleApiError(error, "Não foi possível gerar o conteúdo completo a partir da fonte.");
     }
 };
 
-export const generateImageForMindMap = async (prompt: string): Promise<{ base64Image?: string; error?: string }> => {
-    if (!API_KEY) {
-        return { error: "A funcionalidade da IA está desabilitada." };
+export const generateImageForMindMap = async (prompt: string, apiKey?: string): Promise<{ base64Image?: string; error?: string }> => {
+    const ai = getAiClient(apiKey);
+    if (!ai) {
+        return { error: "A funcionalidade da IA está desabilitada. Configure uma chave de API válida." };
     }
     const reinforcedPrompt = `
     Gere uma imagem para um mapa mental claro, bem estruturado e visualmente agradável sobre o conceito central: "${prompt}".
@@ -224,7 +221,7 @@ export const generateImageForMindMap = async (prompt: string): Promise<{ base64I
     A imagem será considerada uma falha e rejeitada se contiver qualquer erro de português, por menor que seja. Preste atenção absoluta à escrita correta.
     `;
     try {
-        const response: GenerateContentResponse = await getModel().generateContent({
+        const response: GenerateContentResponse = await ai.models.generateContent({
             model: 'gemini-2.5-flash-image',
             contents: {
                 parts: [{ text: reinforcedPrompt }],
@@ -241,17 +238,18 @@ export const generateImageForMindMap = async (prompt: string): Promise<{ base64I
         }
         return { error: "Nenhuma imagem foi gerada pela IA." };
     } catch (error) {
-        console.error("Error generating mind map image:", error);
-        return { error: "Não foi possível gerar a imagem do mapa mental." };
+        return handleApiError(error, "Não foi possível gerar a imagem do mapa mental.");
     }
 };
 
 export const getPersonalizedStudyPlan = async (
     userStats: any, 
     interactions: UserContentInteraction[],
-    content: {summaries: any[], flashcards: any[], notebooks: any[], medias: any[]}
+    content: {summaries: any[], flashcards: any[], notebooks: any[], medias: any[]},
+    apiKey?: string
     ): Promise<string> => {
-    if (!API_KEY) {
+    const ai = getAiClient(apiKey);
+    if (!ai) {
         return "A funcionalidade da IA está desabilitada. Configure a API Key.";
     }
     
@@ -286,7 +284,7 @@ export const getPersonalizedStudyPlan = async (
         Crie o plano de estudos agora.
     `;
     try {
-        const response: GenerateContentResponse = await getModel().generateContent({
+        const response: GenerateContentResponse = await ai.models.generateContent({
             model: 'gemini-2.5-pro', // Using a more powerful model for better analysis
             contents: prompt,
         });
@@ -297,8 +295,9 @@ export const getPersonalizedStudyPlan = async (
     }
 }
 
-export const filterItemsByPrompt = async (prompt: string, items: {id: string, text: string}[]): Promise<string[]> => {
-    if (!API_KEY) {
+export const filterItemsByPrompt = async (prompt: string, items: {id: string, text: string}[], apiKey?: string): Promise<string[]> => {
+    const ai = getAiClient(apiKey);
+    if (!ai) {
         console.error("API Key not configured for AI filtering.");
         return items.map(i => i.id);
     }
@@ -312,7 +311,7 @@ export const filterItemsByPrompt = async (prompt: string, items: {id: string, te
         ${JSON.stringify(items)}
         `;
 
-        const response: GenerateContentResponse = await getModel().generateContent({
+        const response: GenerateContentResponse = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: filteringPrompt,
             config: {
@@ -329,7 +328,6 @@ export const filterItemsByPrompt = async (prompt: string, items: {id: string, te
                 }
             }
         });
-        // Fix: Explicitly type the parsed JSON to ensure `relevantIds` is a string array.
         if (!response.text) return [];
         const result = JSON.parse(response.text) as { relevantIds?: string[] };
         return result.relevantIds || [];
@@ -342,9 +340,11 @@ export const filterItemsByPrompt = async (prompt: string, items: {id: string, te
 export const generateSpecificContent = async (
     type: 'summaries' | 'flashcards' | 'questions',
     contextText: string,
-    prompt: string
+    prompt: string,
+    apiKey?: string
 ): Promise<any> => {
-    if (!API_KEY) return { error: "API Key not configured." };
+    const ai = getAiClient(apiKey);
+    if (!ai) return { error: "API Key not configured." };
     
     const contentGenerationMap = {
         summaries: {
@@ -410,7 +410,7 @@ export const generateSpecificContent = async (
     const fullPrompt = `${generationDetails.instruction}\n\nTexto-fonte:\n---\n${contextText}\n---`;
 
     try {
-        const response: GenerateContentResponse = await getModel().generateContent({
+        const response: GenerateContentResponse = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: fullPrompt,
             config: {
@@ -424,19 +424,18 @@ export const generateSpecificContent = async (
                 },
             },
         });
-        // Fix: Ensure response.text exists before parsing.
         if (!response.text) return { error: `Falha ao gerar ${type}.` };
         const result = JSON.parse(response.text);
         return result.generatedContent;
 
     } catch (error) {
-        console.error(`Error generating ${type}:`, error);
-        return { error: `Falha ao gerar ${type}.` };
+        return handleApiError(error, `Falha ao gerar ${type}.`);
     }
 };
 
-export const generateNotebookName = async (questions: Question[]): Promise<string> => {
-    if (!API_KEY) return "Caderno de Estudos";
+export const generateNotebookName = async (questions: Question[], apiKey?: string): Promise<string> => {
+    const ai = getAiClient(apiKey);
+    if (!ai) return "Caderno de Estudos";
     
     const questionTexts = questions.slice(0, 5).map(q => q.questionText).join("\n - ");
     const prompt = `Baseado nas seguintes questões, gere um nome curto, conciso e descritivo (máximo de 5 palavras) para um "Caderno de Questões". Responda apenas com o nome.
@@ -446,7 +445,7 @@ export const generateNotebookName = async (questions: Question[]): Promise<strin
     `;
 
     try {
-        const response = await getModel().generateContent({
+        const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
         });
@@ -460,9 +459,11 @@ export const generateNotebookName = async (questions: Question[]): Promise<strin
 export const generateMoreQuestionsFromSource = async (
     sourceText: string,
     existingQuestions: any[],
-    userPrompt?: string
+    userPrompt?: string,
+    apiKey?: string
 ): Promise<any> => {
-    if (!API_KEY) return { error: "API Key not configured." };
+    const ai = getAiClient(apiKey);
+    if (!ai) return { error: "API Key not configured." };
 
     const prompt = `
     Você é um especialista em criar questões para concursos. Sua tarefa é analisar um texto-fonte e gerar **novas e únicas** questões de múltipla escolha, evitando duplicar as que já existem.
@@ -519,7 +520,7 @@ export const generateMoreQuestionsFromSource = async (
     };
 
     try {
-        const response: GenerateContentResponse = await getModel().generateContent({
+        const response: GenerateContentResponse = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
             config: { responseMimeType: "application/json", responseSchema: schema, tools: [{googleSearch: {}}] },
@@ -529,17 +530,18 @@ export const generateMoreQuestionsFromSource = async (
         const result = JSON.parse(response.text);
         return result;
     } catch (error) {
-        console.error("Error generating more questions:", error);
-        return { error: "Falha ao gerar mais questões a partir da fonte." };
+        return handleApiError(error, "Falha ao gerar mais questões a partir da fonte.");
     }
 };
 
 export const generateMoreSummariesFromSource = async (
     sourceText: string,
     existingSummaries: any[],
-    userPrompt?: string
+    userPrompt?: string,
+    apiKey?: string
 ): Promise<any> => {
-    if (!API_KEY) return { error: "API Key not configured." };
+    const ai = getAiClient(apiKey);
+    if (!ai) return { error: "API Key not configured." };
     const prompt = `
     Você é um especialista em resumir textos para concursos. Sua tarefa é analisar um texto-fonte e gerar **novos e únicos** resumos, evitando duplicar os que já existem.
 
@@ -577,7 +579,7 @@ export const generateMoreSummariesFromSource = async (
         required: ['summaries']
     };
     try {
-        const response: GenerateContentResponse = await getModel().generateContent({
+        const response: GenerateContentResponse = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
             config: { responseMimeType: "application/json", responseSchema: schema, tools: [{googleSearch: {}}] },
@@ -585,17 +587,18 @@ export const generateMoreSummariesFromSource = async (
         if (!response.text) return { summaries: [] };
         return JSON.parse(response.text);
     } catch (error) {
-        console.error("Error generating more summaries:", error);
-        return { error: "Falha ao gerar mais resumos a partir da fonte." };
+        return handleApiError(error, "Falha ao gerar mais resumos a partir da fonte.");
     }
 };
 
 export const generateMoreFlashcardsFromSource = async (
     sourceText: string,
     existingFlashcards: any[],
-    userPrompt?: string
+    userPrompt?: string,
+    apiKey?: string
 ): Promise<any> => {
-    if (!API_KEY) return { error: "API Key not configured." };
+    const ai = getAiClient(apiKey);
+    if (!ai) return { error: "API Key not configured." };
     const prompt = `
     Você é um especialista em criar flashcards para concursos. Sua tarefa é analisar um texto-fonte e gerar **novos e únicos** flashcards, evitando duplicar os que já existem.
 
@@ -632,7 +635,7 @@ export const generateMoreFlashcardsFromSource = async (
         required: ['flashcards']
     };
     try {
-        const response: GenerateContentResponse = await getModel().generateContent({
+        const response: GenerateContentResponse = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
             config: { responseMimeType: "application/json", responseSchema: schema, tools: [{googleSearch: {}}] },
@@ -640,16 +643,17 @@ export const generateMoreFlashcardsFromSource = async (
         if (!response.text) return { flashcards: [] };
         return JSON.parse(response.text);
     } catch (error) {
-        console.error("Error generating more flashcards:", error);
-        return { error: "Falha ao gerar mais flashcards a partir da fonte." };
+        return handleApiError(error, "Falha ao gerar mais flashcards a partir da fonte.");
     }
 };
 
 export const generateContentFromPromptAndSources = async (
     prompt: string,
-    contextSources: { title: string, summary: string }[]
+    contextSources: { title: string, summary: string }[],
+    apiKey?: string
 ): Promise<any> => {
-    if (!API_KEY) return { error: "API Key not configured." };
+    const ai = getAiClient(apiKey);
+    if (!ai) return { error: "API Key not configured." };
 
     const contextText = contextSources.map(s => `Fonte de Contexto: ${s.title}\nResumo: ${s.summary}`).join('\n\n---\n\n');
 
@@ -670,15 +674,17 @@ export const generateContentFromPromptAndSources = async (
     ---
     `;
     
-    return processAndGenerateAllContentFromSource(fullPrompt, []); // Re-use the robust generation logic and schema
+    return processAndGenerateAllContentFromSource(fullPrompt, [], undefined, apiKey); // Re-use the robust generation logic and schema
 };
 
 export const generateMoreMindMapTopicsFromSource = async (
     sourceText: string,
     existingMindMapTitles: string[],
-    userPrompt?: string
+    userPrompt?: string,
+    apiKey?: string
 ): Promise<{ title: string, prompt: string }[]> => {
-    if (!API_KEY) return [];
+    const ai = getAiClient(apiKey);
+    if (!ai) return [];
 
     const prompt = `
     Você é um especialista em material de estudo. Sua tarefa é identificar novos tópicos para mapas mentais a partir de um texto-fonte, evitando duplicatas.
@@ -726,12 +732,11 @@ export const generateMoreMindMapTopicsFromSource = async (
     };
 
     try {
-        const response: GenerateContentResponse = await getModel().generateContent({
+        const response: GenerateContentResponse = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
             config: { responseMimeType: "application/json", responseSchema: schema, tools: [{googleSearch: {}}] },
         });
-        // Fix: Ensure response.text exists before parsing.
         if (!response.text) return [];
         const result = JSON.parse(response.text);
         return result.mindMapTopics || [];
@@ -741,8 +746,9 @@ export const generateMoreMindMapTopicsFromSource = async (
     }
 };
 
-export const generateCaseStudy = async (text: string | null, sources: Source[], userPrompt?: string): Promise<any> => {
-    if (!API_KEY) return { error: "API Key not configured." };
+export const generateCaseStudy = async (text: string | null, sources: Source[], userPrompt?: string, apiKey?: string): Promise<any> => {
+    const ai = getAiClient(apiKey);
+    if (!ai) return { error: "API Key not configured." };
 
     const materias = [...new Set(sources.map(s => s.materia))];
     const basePrompt = `
@@ -818,7 +824,7 @@ export const generateCaseStudy = async (text: string | null, sources: Source[], 
     };
 
     try {
-        const response: GenerateContentResponse = await getModel().generateContent({
+        const response: GenerateContentResponse = await ai.models.generateContent({
             model: 'gemini-2.5-pro',
             contents: basePrompt,
             config: {
@@ -827,7 +833,6 @@ export const generateCaseStudy = async (text: string | null, sources: Source[], 
                 ...(text ? {} : { tools: [{googleSearch: {}}] })
             },
         });
-        // Fix: Ensure response.text exists before parsing.
         if (!response.text) return { error: "Falha ao gerar o estudo de caso." };
         const result = JSON.parse(response.text);
         // Gemini doesn't generate UUIDs, so let's add them here.
@@ -837,7 +842,6 @@ export const generateCaseStudy = async (text: string | null, sources: Source[], 
         });
         return result;
     } catch (error) {
-        console.error("Error generating case study:", error);
-        return { error: "Falha ao gerar o estudo de caso." };
+        return handleApiError(error, "Falha ao gerar o estudo de caso.");
     }
 };

@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { MainContentProps } from '../../types';
 import { Source } from '../../types';
@@ -176,9 +177,9 @@ const AddSourceModal: React.FC<{
     );
 };
 
-type SourcesViewProps = Pick<MainContentProps, 'appData' | 'setAppData' | 'currentUser' | 'updateUser' | 'processingTasks' | 'setProcessingTasks'>
+type SourcesViewProps = Pick<MainContentProps, 'appData' | 'setAppData' | 'currentUser' | 'updateUser' | 'processingTasks' | 'setProcessingTasks' | 'agentSettings'>
 
-export const SourcesView: React.FC<SourcesViewProps> = ({ appData, setAppData, currentUser, updateUser, processingTasks, setProcessingTasks }) => {
+export const SourcesView: React.FC<SourcesViewProps> = ({ appData, setAppData, currentUser, updateUser, processingTasks, setProcessingTasks, agentSettings }) => {
     const [isAddSourceModalOpen, setIsAddSourceModalOpen] = useState(false);
     const [sourceToDelete, setSourceToDelete] = useState<Source | null>(null);
     const [sourceToRename, setSourceToRename] = useState<Source | null>(null);
@@ -234,7 +235,7 @@ export const SourcesView: React.FC<SourcesViewProps> = ({ appData, setAppData, c
 
             setProcessingTasks(prev => prev.map(t => t.id === taskId ? { ...t, message: 'Analisando e gerando conteúdo com IA...' } : t));
             const existingTopics = appData.sources.map(s => ({ materia: s.materia, topic: s.topic }));
-            const generated = await processAndGenerateAllContentFromSource(fullText, existingTopics, prompt);
+            const generated = await processAndGenerateAllContentFromSource(fullText, existingTopics, prompt, agentSettings?.apiKey);
             if (generated.error) throw new Error(generated.error);
             
             const finalTitle = title || generated.title;
@@ -258,13 +259,17 @@ export const SourcesView: React.FC<SourcesViewProps> = ({ appData, setAppData, c
             setProcessingTasks(prev => prev.map(t => t.id === taskId ? { ...t, message: 'Salvando conteúdo gerado...' } : t));
             const mindMapPrompts = generated.mindMapTopics || [];
             const mindMapPromises = mindMapPrompts.map(async (topic: {title: string, prompt: string}) => {
-                const { base64Image } = await generateImageForMindMap(topic.prompt);
+                const { base64Image, error } = await generateImageForMindMap(topic.prompt, agentSettings?.apiKey);
+                if (error) {
+                    console.warn(`Could not generate mind map for "${topic.title}": ${error}`);
+                    return null;
+                }
                 if (base64Image) {
                     const imageBlob = await (await fetch(`data:image/png;base64,${base64Image}`)).blob();
                     const imagePath = `${currentUser.id}/mindmaps/${newSource.id}_${topic.title.replace(/\s/g, '_')}.png`;
-                    const { error } = await supabase!.storage.from('sources').upload(imagePath, imageBlob);
-                    if (error) {
-                        console.error("Failed to upload mind map image:", error);
+                    const { error: uploadError } = await supabase!.storage.from('sources').upload(imagePath, imageBlob);
+                    if (uploadError) {
+                        console.error("Failed to upload mind map image:", uploadError);
                         return null;
                     }
                     const { data: { publicUrl } } = supabase!.storage.from('sources').getPublicUrl(imagePath);
@@ -303,12 +308,10 @@ export const SourcesView: React.FC<SourcesViewProps> = ({ appData, setAppData, c
                 summary: generated.summary,
                 original_filename: fileArray.map((f: File) => f.name),
                 storage_path: storagePaths,
-                materia: generated.materia,
-                topic: generated.topic,
-                summaries: createdContent.summaries,
-                flashcards: createdContent.flashcards,
-                questions: createdContent.questions,
-                mind_maps: createdContent.mind_maps,
+                summaries: createdContent.summaries || [],
+                flashcards: createdContent.flashcards || [],
+                questions: (createdContent.questions || []).map((q: any) => ({...q, questionText: q.question_text, correctAnswer: q.correct_answer})),
+                mind_maps: createdContent.mind_maps || [],
                 audio_summaries: []
             };
             
@@ -344,7 +347,7 @@ export const SourcesView: React.FC<SourcesViewProps> = ({ appData, setAppData, c
             
             if (type === 'mind_maps') {
                 const existingTitles = source.mind_maps.map(m => m.title);
-                const newTopics = await generateMoreMindMapTopicsFromSource(fullText, existingTitles);
+                const newTopics = await generateMoreMindMapTopicsFromSource(fullText, existingTitles, undefined, agentSettings?.apiKey);
 
                 if (newTopics.length === 0) {
                     alert("A IA não encontrou novos tópicos para Mapas Mentais.");
@@ -352,7 +355,7 @@ export const SourcesView: React.FC<SourcesViewProps> = ({ appData, setAppData, c
                 }
 
                 const mindMapPromises = newTopics.map(async (topic) => {
-                    const { base64Image } = await generateImageForMindMap(topic.prompt);
+                    const { base64Image } = await generateImageForMindMap(topic.prompt, agentSettings?.apiKey);
                     if (base64Image) {
                         const imageBlob = await (await fetch(`data:image/png;base64,${base64Image}`)).blob();
                         const imagePath = `${currentUser.id}/mindmaps/${source.id}_${topic.title.replace(/\s/g, '_')}_${Date.now()}.png`;
@@ -378,11 +381,11 @@ export const SourcesView: React.FC<SourcesViewProps> = ({ appData, setAppData, c
                 const userPrompt = undefined; // No UI for this yet, but the function supports it.
 
                 if (type === 'questions') {
-                    newGenerated = await generateMoreQuestionsFromSource(fullText, source.questions, userPrompt);
+                    newGenerated = await generateMoreQuestionsFromSource(fullText, source.questions, userPrompt, agentSettings?.apiKey);
                 } else if (type === 'summaries') {
-                    newGenerated = await generateMoreSummariesFromSource(fullText, source.summaries, userPrompt);
+                    newGenerated = await generateMoreSummariesFromSource(fullText, source.summaries, userPrompt, agentSettings?.apiKey);
                 } else if (type === 'flashcards') {
-                    newGenerated = await generateMoreFlashcardsFromSource(fullText, source.flashcards, userPrompt);
+                    newGenerated = await generateMoreFlashcardsFromSource(fullText, source.flashcards, userPrompt, agentSettings?.apiKey);
                 }
 
                 if (!newGenerated || newGenerated.error) throw new Error(newGenerated?.error || "A geração de conteúdo falhou.");

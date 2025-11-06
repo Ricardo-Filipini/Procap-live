@@ -1,4 +1,5 @@
 
+
 import React from 'react';
 
 export type Theme = 'light' | 'dark';
@@ -341,6 +342,7 @@ export interface MainContentProps {
   onToggleAgentSettings?: () => void;
   isLiveAgentActive?: boolean;
   liveAgentStatus?: LiveAgentStatus;
+  agentSettings?: AgentSettings;
   // FIX: Made the 'term' property optional to match its usage in the application, resolving a type mismatch.
   navTarget?: {viewName: string, term?: string, id?: string, subId?: string} | null;
   setNavTarget?: (target: {viewName: string, term?: string, id?: string, subId?: string} | null) => void;
