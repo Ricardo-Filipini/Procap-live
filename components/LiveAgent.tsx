@@ -12,7 +12,7 @@ import {
 import { AppData, User, View, AgentSettings, LiveAgentStatus } from '../types';
 import { MicrophoneIcon, MicrophoneSlashIcon, PauseIcon } from './Icons';
 import { decode, decodeAudioData, encode } from '../lib/audio';
-import { VIEWS } from '../constants';
+import { VIEWS, getFinalApiKey } from '../constants';
 import { supabase } from '../services/supabaseClient';
 
 interface LiveAgentProps {
@@ -28,13 +28,6 @@ interface LiveAgentProps {
 
 const RETRY_DELAYS = [1000, 2000, 5000, 10000]; // ms for retries
 const MAX_RETRIES = RETRY_DELAYS.length;
-
-const FALLBACK_API_KEYS = [
-    'AIzaSyDR0Hs4OQz2Pss1_DiviQQ1Lzpa_cGAhbQ',
-    'AIzaSyB2VifmEfcRyCNegusrO2sQLlDNBm-j6yw',
-    'AIzaSyCgchi49OE_ysRiimeQjxM5rG0NSKotycE',
-    'AIzaSyA0U7iJOnWHajq2aanwYsT-IpwRlZk8OOU',
-];
 
 export const LiveAgent: React.FC<LiveAgentProps> = ({ appData, currentUser, setActiveView, setNavTarget, agentSettings, screenContext, setLiveAgentStatus, setAgentSettings }) => {
     const [isMuted, setIsMuted] = useState(false);
@@ -86,20 +79,7 @@ export const LiveAgent: React.FC<LiveAgentProps> = ({ appData, currentUser, setA
         cleanup();
         setLiveAgentStatus('connecting');
 
-        const getApiKey = (): string => {
-            // 1. User-provided key from settings
-            const userKey = agentSettings.apiKey.trim();
-            if (userKey) return userKey;
-            
-            // 2. Environment variable key
-            const envKey = (import.meta as any).env?.VITE_API_KEY || process.env.API_KEY;
-            if (envKey) return envKey;
-            
-            // 3. One of the hardcoded fallback keys
-            return FALLBACK_API_KEYS[Math.floor(Math.random() * FALLBACK_API_KEYS.length)];
-        };
-        
-        const apiKey = getApiKey();
+        const apiKey = getFinalApiKey(agentSettings.apiKey);
         if (!apiKey) {
             console.error("No API Key available for Live Agent.");
             setLiveAgentStatus('error');

@@ -1,12 +1,13 @@
 import { GoogleGenAI, GenerateContentResponse, Type, Part, Modality } from "@google/genai";
 import { ContentType, Question, User, UserContentInteraction, UserQuestionAnswer, Source } from '../types';
+import { getFinalApiKey } from '../constants';
 
 // New function to get the AI client dynamically.
 // It prioritizes the user-provided key, then environment variables.
 // It NO LONGER uses hardcoded fallback keys.
 const getAiClient = (apiKey?: string): GoogleGenAI | null => {
-    const finalApiKey = apiKey?.trim() || (import.meta as any).env?.VITE_API_KEY || process.env.API_KEY;
-    if (!finalApiKey || finalApiKey.trim() === '') {
+    const finalApiKey = getFinalApiKey(apiKey);
+    if (!finalApiKey) {
         console.warn("Chave de API do Gemini não encontrada. Por favor, configure uma nas Configurações do Agente IA ou como uma variável de ambiente.");
         return null;
     }
@@ -523,7 +524,7 @@ export const generateMoreQuestionsFromSource = async (
         const response: GenerateContentResponse = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
-            config: { responseMimeType: "application/json", responseSchema: schema, tools: [{googleSearch: {}}] },
+            config: { responseMimeType: "application/json", responseSchema: schema },
         });
 
         if (!response.text) return { questions: [] };
@@ -582,7 +583,7 @@ export const generateMoreSummariesFromSource = async (
         const response: GenerateContentResponse = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
-            config: { responseMimeType: "application/json", responseSchema: schema, tools: [{googleSearch: {}}] },
+            config: { responseMimeType: "application/json", responseSchema: schema },
         });
         if (!response.text) return { summaries: [] };
         return JSON.parse(response.text);
@@ -638,7 +639,7 @@ export const generateMoreFlashcardsFromSource = async (
         const response: GenerateContentResponse = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
-            config: { responseMimeType: "application/json", responseSchema: schema, tools: [{googleSearch: {}}] },
+            config: { responseMimeType: "application/json", responseSchema: schema },
         });
         if (!response.text) return { flashcards: [] };
         return JSON.parse(response.text);
@@ -735,7 +736,7 @@ export const generateMoreMindMapTopicsFromSource = async (
         const response: GenerateContentResponse = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
-            config: { responseMimeType: "application/json", responseSchema: schema, tools: [{googleSearch: {}}] },
+            config: { responseMimeType: "application/json", responseSchema: schema },
         });
         if (!response.text) return [];
         const result = JSON.parse(response.text);

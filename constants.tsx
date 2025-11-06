@@ -163,3 +163,41 @@ export const ACHIEVEMENTS = {
       { count: 20000, title: "Lenda do Procap" },
   ]
 };
+
+export const FALLBACK_API_KEYS = [
+    'AIzaSyCvsigzPyzoBuM7WOFeRqe9hZX-0yQ-WjU',
+    'AIzaSyC0994KXf-7tPBBHT-Ty22mxxOKOSCBIlY',
+    'AIzaSyB5YZwv9GcabHXBtgI6wE8jGHt3kQ9ty2A',
+    'AIzaSyBBijuz1gLGpckEjuzhDnDBM61U09zvfyY',
+];
+
+/**
+ * Retrieves the final API key based on a priority order:
+ * 1. User-provided key (from settings).
+ * 2. VITE_API_KEY environment variable.
+ * 3. API_KEY environment variable.
+ * 4. A random key from the fallback list.
+ * Returns undefined if no key is found.
+ */
+export const getFinalApiKey = (userApiKey?: string): string | undefined => {
+    const userKey = userApiKey?.trim();
+    if (userKey) {
+        return userKey;
+    }
+
+    const viteEnvKey = (import.meta as any).env?.VITE_API_KEY;
+    if (viteEnvKey) {
+        return viteEnvKey;
+    }
+
+    const envKey = process.env.API_KEY;
+    if (envKey) {
+        return envKey;
+    }
+    
+    if (FALLBACK_API_KEYS && FALLBACK_API_KEYS.length > 0) {
+        return FALLBACK_API_KEYS[Math.floor(Math.random() * FALLBACK_API_KEYS.length)];
+    }
+
+    return undefined;
+};
