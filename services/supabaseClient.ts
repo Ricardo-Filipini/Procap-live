@@ -205,23 +205,41 @@ const checkSupabase = () => {
     return true;
 }
 
+const fetchTable = async (tableName: string, ordering?: { column: string, options: { ascending: boolean } }) => {
+    if (!checkSupabase()) return [];
+    let allData: any[] = [];
+    let page = 0;
+    const pageSize = 1000; // Supabase default limit per request
+
+    while (true) {
+        let query = supabase!.from(tableName).select('*');
+        if (ordering) {
+            query = query.order(ordering.column, ordering.options);
+        }
+
+        const { data, error } = await query.range(page * pageSize, (page + 1) * pageSize - 1);
+
+        if (error) {
+            throw new Error(`Error fetching data from table "${tableName}": ${error.message}`);
+        }
+
+        if (data) {
+            allData = allData.concat(data);
+        }
+
+        if (!data || data.length < pageSize) {
+            break; // Exit loop if last page is reached
+        }
+        page++;
+    }
+    return allData;
+};
+
 export const getInitialData = async (): Promise<{ data: AppData; error: string | null; }> => {
     const emptyData: AppData = { users: [], sources: [], linksFiles: [], chatMessages: [], questionNotebooks: [], caseStudies: [], scheduleEvents: [], studyPlans: [], userMessageVotes: [], userSourceVotes: [], userContentInteractions: [], userNotebookInteractions: [], userQuestionAnswers: [], userCaseStudyInteractions: [], xp_events: [] };
     if (!checkSupabase()) return { data: emptyData, error: "Supabase client not configured." };
 
     try {
-        const fetchTable = async (tableName: string, ordering?: { column: string, options: { ascending: boolean } }) => {
-            let query = supabase!.from(tableName).select('*');
-            if (ordering) {
-                query = query.order(ordering.column, ordering.options);
-            }
-            const { data, error } = await query;
-            if (error) {
-                // Throw the error to be caught by the outer try-catch block
-                throw new Error(`Error fetching data from table "${tableName}": ${error.message}`);
-            }
-            return data || [];
-        };
         
         const [
             users,
