@@ -1,6 +1,3 @@
-
-
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { MainContentProps } from '../../types';
 import { Flashcard, Comment, ContentType } from '../../types';
@@ -14,7 +11,6 @@ import { handleInteractionUpdate, handleVoteUpdate, handleGenerateNewContent } f
 import { updateContentComments } from '../../services/supabaseClient';
 import { XMarkIcon } from '../Icons';
 
-// Fix: Removed the incompatible 'navTarget' override. The correct type is inherited from MainContentProps.
 interface FlashcardsViewProps extends MainContentProps {
     allItems: (Flashcard & { user_id: string, created_at: string, source: any})[];
     clearNavTarget: () => void;
@@ -43,13 +39,16 @@ export const FlashcardsView: React.FC<FlashcardsViewProps> = ({ allItems, appDat
         return allItems;
     }, [allItems, sourceFilter]);
 
-    const {
-        sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly,
-        aiFilterIds, isFiltering, isGenerating, setIsGenerating,
-        generateModalOpen, setGenerateModalOpen, generationPrompt,
-        processedItems, handleAiFilter, handleClearFilter, handleOpenGenerateModal
-    } = useContentViewController(itemsToDisplay, currentUser, appData, contentType, 'source', flipped);
+    const controller = useContentViewController(itemsToDisplay, currentUser, appData, contentType, 'source');
+    const { processedItems, sort, filter, favoritesOnly, aiFilterIds, setSort, setFilter, setFavoritesOnly, handleAiFilter, handleClearFilter, handleOpenGenerateModal, generateModalOpen, isGenerating, setIsGenerating, generationPrompt } = controller;
 
+    const [stableItems, setStableItems] = useState(processedItems);
+    
+    useEffect(() => {
+        setStableItems(processedItems);
+    }, [sort, filter, favoritesOnly, aiFilterIds, sourceFilter, itemsToDisplay]);
+
+    const itemsToRender = (filter === 'unread' || filter === 'read') ? stableItems : processedItems;
 
     const handleToggleGroup = (groupKey: string) => {
         setOpenGroups(prev => {
@@ -63,7 +62,6 @@ export const FlashcardsView: React.FC<FlashcardsViewProps> = ({ allItems, appDat
         });
     };
 
-    // Step 1: Capture navigation command and prepare the component's state.
     useEffect(() => {
         if (navTarget?.id) {
             const item = allItems.find(i => i.id === navTarget.id);
@@ -80,7 +78,6 @@ export const FlashcardsView: React.FC<FlashcardsViewProps> = ({ allItems, appDat
         }
     }, [navTarget, allItems, setSort, clearNavTarget]);
 
-    // Step 2: Once the state is ready (group is open), perform DOM actions.
     useEffect(() => {
         if (!navigationState) return;
 
@@ -110,7 +107,6 @@ export const FlashcardsView: React.FC<FlashcardsViewProps> = ({ allItems, appDat
         } else if (action === 'vote') {
              const commentIndex = updatedComments.findIndex(c => c.id === payload.commentId);
             if (commentIndex > -1) {
-                // FIX: Refactored to avoid dynamic property access with `+=` which can cause type errors.
                 if (payload.voteType === 'hot') {
                     updatedComments[commentIndex].hot_votes = (updatedComments[commentIndex].hot_votes || 0) + 1;
                 } else if (payload.voteType === 'cold') {
@@ -172,12 +168,12 @@ export const FlashcardsView: React.FC<FlashcardsViewProps> = ({ allItems, appDat
             <CommentsModal isOpen={!!commentingOn} onClose={() => setCommentingOn(null)} comments={commentingOn?.comments || []} onAddComment={(text) => handleCommentAction('add', {text})} onVoteComment={(commentId, voteType) => handleCommentAction('vote', {commentId, voteType})} contentTitle={commentingOn?.front || ''}/>
             <GenerateContentModal 
                 isOpen={generateModalOpen}
-                onClose={() => setGenerateModalOpen(false)}
+                onClose={() => controller.setGenerateModalOpen(false)}
                 sources={appData.sources}
                 prompt={generationPrompt}
                 contentType="flashcards"
                 isLoading={isGenerating}
-                onGenerate={(ids, p) => handleGenerateNewContent(setAppData, appData, setIsGenerating, () => setGenerateModalOpen(false), 'flashcards', ids, p)}
+                onGenerate={(ids, p) => handleGenerateNewContent(setAppData, appData, setIsGenerating, () => controller.setGenerateModalOpen(false), 'flashcards', ids, p)}
             />
             <ContentToolbar {...{ sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly, onAiFilter: handleAiFilter, onGenerate: handleOpenGenerateModal, isFiltering: !!aiFilterIds, onClearFilter: handleClearFilter }} />
             
@@ -192,9 +188,9 @@ export const FlashcardsView: React.FC<FlashcardsViewProps> = ({ allItems, appDat
             
             <FontSizeControl fontSize={fontSize} setFontSize={setFontSize} className="mb-4" />
             <div className="space-y-6">
-                {Array.isArray(processedItems) 
-                    ? renderItems(processedItems)
-                    : Object.entries(processedItems as Record<string, any[]>).map(([groupKey, items]: [string, any[]]) => {
+                {Array.isArray(itemsToRender) 
+                    ? renderItems(itemsToRender)
+                    : Object.entries(itemsToRender as Record<string, any[]>).map(([groupKey, items]: [string, any[]]) => {
                         const isHighlighted = groupKey.startsWith('(Apostila)');
                         return (
                             <details key={groupKey} open={openGroups.has(groupKey)} className={`bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark transition-all ${isHighlighted ? 'border-primary-light dark:border-primary-dark border-2 shadow-lg' : ''}`}>

@@ -1,9 +1,7 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AppData, User, ChatMessage, MainContentProps } from '../../types';
 import { PaperAirplaneIcon, MinusIcon, PlusIcon } from '../Icons';
 import { FontSizeControl, FONT_SIZE_CLASSES } from '../shared/FontSizeControl';
-// FIX: Replaced incrementVoteCount with incrementMessageVote for type safety and correctness.
 import { addChatMessage, supabase, upsertUserVote, incrementMessageVote, updateUser as supabaseUpdateUser, logXpEvent } from '../../services/supabaseClient';
 import { getSimpleChatResponse } from '../../services/geminiService';
 
@@ -145,7 +143,6 @@ const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dis
         setAppData(prev => {
             const newVotes = prev.userMessageVotes.map(v => 
                 (v.user_id === currentUser.id && v.message_id === messageId)
-                // FIX: Defensively ensure vote properties are numbers before incrementing to avoid type errors.
                 ? { ...v, [`${type}_votes`]: (v[`${type}_votes`] || 0) + increment }
                 : v
             );
@@ -154,14 +151,12 @@ const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dis
             }
 
             const newMessages = prev.chatMessages.map(m => 
-                // FIX: Defensively ensure vote properties are numbers before incrementing to avoid type errors.
                 m.id === messageId ? { ...m, [`${type}_votes`]: (m[`${type}_votes`] || 0) + increment } : m
             );
             return { ...prev, userMessageVotes: newVotes, chatMessages: newMessages };
         });
 
         await upsertUserVote('user_message_votes', { user_id: currentUser.id, message_id: messageId, hot_votes_increment: type === 'hot' ? increment : 0, cold_votes_increment: type === 'cold' ? increment : 0 }, ['user_id', 'message_id']);
-        // FIX: Replaced the generic incrementVoteCount with the specific incrementMessageVote function.
         await incrementMessageVote(messageId, `${type}_votes`, increment);
 
         if (author && !isOwnContent) {
@@ -330,8 +325,14 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
     const [leaderboardFilter, setLeaderboardFilter] = useState<'geral' | 'diaria' | 'periodo' | 'hora'>('geral');
 
     const filteredLeaderboard = useMemo(() => {
-        // Shared logic for summing XP events for a list of users
-        const calculateXpForUsers = (events: typeof appData.xp_events) => {
+        if (leaderboardFilter === 'geral') {
+            // Para o placar 'Geral', usamos o valor de XP total que já está em `appData.users`.
+            // Este valor é a fonte da verdade para o XP total do usuário, calculado na inicialização do app.
+            return [...appData.users].sort((a, b) => b.xp - a.xp);
+        }
+
+        // Para todos os outros filtros (diário, período, hora), recalculamos o XP a partir dos eventos de XP.
+        const calculateXpFromEvents = (events: typeof appData.xp_events) => {
             const userXpMap = new Map<string, number>();
             events.forEach(event => {
                 const currentXp = userXpMap.get(event.user_id) || 0;
@@ -343,11 +344,6 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
             }));
         };
 
-        if (leaderboardFilter === 'geral') {
-            const usersWithTotalXp = calculateXpForUsers(appData.xp_events);
-            return usersWithTotalXp.sort((a, b) => b.xp - a.xp);
-        }
-
         const now = new Date();
         let startTime: Date;
 
@@ -358,11 +354,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
                 break;
             case 'periodo':
                 startTime = new Date(now);
-                if (now.getHours() < 12) {
-                    startTime.setHours(0, 0, 0, 0);
-                } else {
-                    startTime.setHours(12, 0, 0, 0);
-                }
+                startTime.setHours(now.getHours() < 12 ? 0 : 12, 0, 0, 0);
                 break;
             case 'hora':
                 startTime = new Date(now.getTime() - 60 * 60 * 1000);
@@ -373,7 +365,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
             event => new Date(event.created_at) >= startTime
         );
         
-        const userXpInPeriod = calculateXpForUsers(xpEventsInPeriod);
+        const userXpInPeriod = calculateXpFromEvents(xpEventsInPeriod);
 
         return userXpInPeriod
             .filter(user => user.xp > 0)
