@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AppData, User, ChatMessage, MainContentProps } from '../../types';
 import { PaperAirplaneIcon, MinusIcon, PlusIcon } from '../Icons';
@@ -144,7 +145,8 @@ const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dis
         setAppData(prev => {
             const newVotes = prev.userMessageVotes.map(v => 
                 (v.user_id === currentUser.id && v.message_id === messageId)
-                ? { ...v, [`${type}_votes`]: v[`${type}_votes`] + increment }
+                // FIX: Defensively ensure vote properties are numbers before incrementing to avoid type errors.
+                ? { ...v, [`${type}_votes`]: (v[`${type}_votes`] || 0) + increment }
                 : v
             );
             if (!newVotes.some(v => v.user_id === currentUser.id && v.message_id === messageId)) {
@@ -152,7 +154,8 @@ const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dis
             }
 
             const newMessages = prev.chatMessages.map(m => 
-                m.id === messageId ? { ...m, [`${type}_votes`]: m[`${type}_votes`] + increment } : m
+                // FIX: Defensively ensure vote properties are numbers before incrementing to avoid type errors.
+                m.id === messageId ? { ...m, [`${type}_votes`]: (m[`${type}_votes`] || 0) + increment } : m
             );
             return { ...prev, userMessageVotes: newVotes, chatMessages: newMessages };
         });

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AppData, User, ChatMessage, MainContentProps } from '../../types';
 import { PaperAirplaneIcon, MinusIcon, PlusIcon } from '../Icons';
@@ -144,7 +145,8 @@ const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dis
         setAppData(prev => {
             const newVotes = prev.userMessageVotes.map(v => 
                 (v.user_id === currentUser.id && v.message_id === messageId)
-                ? { ...v, [`${type}_votes`]: v[`${type}_votes`] + increment }
+                // FIX: Defensively ensure vote properties are numbers before incrementing to avoid type errors.
+                ? { ...v, [`${type}_votes`]: (v[`${type}_votes`] || 0) + increment }
                 : v
             );
             if (!newVotes.some(v => v.user_id === currentUser.id && v.message_id === messageId)) {
@@ -152,7 +154,8 @@ const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dis
             }
 
             const newMessages = prev.chatMessages.map(m => 
-                m.id === messageId ? { ...m, [`${type}_votes`]: m[`${type}_votes`] + increment } : m
+                // FIX: Defensively ensure vote properties are numbers before incrementing to avoid type errors.
+                m.id === messageId ? { ...m, [`${type}_votes`]: (m[`${type}_votes`] || 0) + increment } : m
             );
             return { ...prev, userMessageVotes: newVotes, chatMessages: newMessages };
         });
@@ -327,10 +330,22 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
     const [leaderboardFilter, setLeaderboardFilter] = useState<'geral' | 'diaria' | 'periodo' | 'hora'>('geral');
 
     const filteredLeaderboard = useMemo(() => {
+        // Shared logic for summing XP events for a list of users
+        const calculateXpForUsers = (events: typeof appData.xp_events) => {
+            const userXpMap = new Map<string, number>();
+            events.forEach(event => {
+                const currentXp = userXpMap.get(event.user_id) || 0;
+                userXpMap.set(event.user_id, currentXp + event.amount);
+            });
+            return appData.users.map(user => ({
+                ...user,
+                xp: userXpMap.get(user.id) || 0,
+            }));
+        };
+
         if (leaderboardFilter === 'geral') {
-            // user.xp is now synced with all xp_events on initial load,
-            // so we can use it as the source of truth for the overall leaderboard.
-            return [...appData.users].sort((a, b) => b.xp - a.xp);
+            const usersWithTotalXp = calculateXpForUsers(appData.xp_events);
+            return usersWithTotalXp.sort((a, b) => b.xp - a.xp);
         }
 
         const now = new Date();
@@ -358,19 +373,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
             event => new Date(event.created_at) >= startTime
         );
         
-        const userXpMap = new Map<string, number>();
-
-        xpEventsInPeriod.forEach(event => {
-            const currentXp = userXpMap.get(event.user_id) || 0;
-            userXpMap.set(event.user_id, currentXp + event.amount);
-        });
-
-        const userXpInPeriod = appData.users.map(user => {
-            return {
-                ...user,
-                xp: userXpMap.get(user.id) || 0,
-            };
-        });
+        const userXpInPeriod = calculateXpForUsers(xpEventsInPeriod);
 
         return userXpInPeriod
             .filter(user => user.xp > 0)

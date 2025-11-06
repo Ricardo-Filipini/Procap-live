@@ -6,7 +6,7 @@ import { SparklesIcon, TrashIcon, CheckCircleIcon, XMarkIcon, CloudArrowUpIcon }
 import { Modal } from '../Modal';
 import { generateCaseStudy } from '../../services/geminiService';
 // FIX: Replaced incrementVoteCount with incrementCaseStudyVote for type safety and correctness.
-import { addCaseStudy, upsertUserCaseStudyInteraction, clearCaseStudyProgress, updateContentComments, upsertUserVote, incrementCaseStudyVote, updateUser as supabaseUpdateUser } from '../../services/supabaseClient';
+import { addCaseStudy, upsertUserCaseStudyInteraction, clearCaseStudyProgress, updateContentComments, upsertUserVote, incrementCaseStudyVote, updateUser as supabaseUpdateUser, logXpEvent } from '../../services/supabaseClient';
 import { ContentActions } from '../shared/ContentActions';
 import { CommentsModal } from '../shared/CommentsModal';
 import { useContentViewController } from '../../hooks/useContentViewController';
@@ -15,6 +15,7 @@ import { handleInteractionUpdate } from '../../lib/content';
 import { FontSizeControl, FONT_SIZE_CLASSES_LARGE } from '../shared/FontSizeControl';
 import * as pdfjsLib from 'pdfjs-dist/build/pdf.mjs';
 import * as mammoth from 'mammoth';
+import { checkAndAwardAchievements } from '../../lib/achievements';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://aistudiocdn.com/pdfjs-dist@^4.4.168/build/pdf.worker.mjs`;
 
@@ -191,7 +192,9 @@ const CaseStudyDetailView: React.FC<{
     onBack: () => void;
     currentUser: MainContentProps['currentUser'];
     updateUser: MainContentProps['updateUser'];
-}> = ({ caseStudy, interaction, onUpdateInteraction, onBack, currentUser, updateUser }) => {
+    appData: MainContentProps['appData'];
+    setAppData: MainContentProps['setAppData'];
+}> = ({ caseStudy, interaction, onUpdateInteraction, onBack, currentUser, updateUser, appData, setAppData }) => {
     const [fontSize, setFontSize] = useState(0);
     
     const handleSelectOption = (decisionPoint: DecisionOption, index: number) => {
@@ -207,16 +210,44 @@ const CaseStudyDetailView: React.FC<{
             xpGained = 20;
             const updatedUser = { ...currentUser, xp: currentUser.xp + xpGained };
             updateUser(updatedUser);
+            logXpEvent(currentUser.id, xpGained, 'CASE_STUDY_CORRECT', caseStudy.id).then(newEvent => {
+                if (newEvent) {
+                    setAppData(prev => ({...prev, xp_events: [newEvent, ...prev.xp_events]}));
+                }
+            });
         }
         
         const isLastPoint = index >= caseStudy.decision_points.length - 1;
 
+        const updatedChoices = [...interaction.choices, { decision_point_id: point.id, chosen_option_id: decisionPoint.id }];
+        
         onUpdateInteraction({
-            choices: [...interaction.choices, { decision_point_id: point.id, chosen_option_id: decisionPoint.id }],
+            choices: updatedChoices,
             xp_earned: (interaction.xp_earned || 0) + xpGained,
             current_decision_point_index: isLastPoint ? index : index + 1,
             completed_at: isLastPoint ? new Date().toISOString() : null,
         });
+
+        if (isLastPoint) {
+            const tempAppData = { ...appData };
+            const interactionIndex = tempAppData.userCaseStudyInteractions.findIndex(i => i.user_id === currentUser.id && i.case_study_id === caseStudy.id);
+            const completedInteraction = {
+                 ...interaction,
+                 choices: updatedChoices,
+                 completed_at: new Date().toISOString()
+            };
+
+            if (interactionIndex > -1) {
+                tempAppData.userCaseStudyInteractions[interactionIndex] = completedInteraction;
+            } else {
+                tempAppData.userCaseStudyInteractions.push(completedInteraction);
+            }
+            
+            const userWithNewAchievements = checkAndAwardAchievements(currentUser, tempAppData);
+            if (userWithNewAchievements.achievements.length > currentUser.achievements.length) {
+                updateUser(userWithNewAchievements);
+            }
+        }
     };
     
     const handleRestart = async () => {
@@ -384,6 +415,8 @@ export const CaseStudyView: React.FC<MainContentProps> = (props) => {
             onBack={() => setSelectedCaseStudy(null)}
             currentUser={currentUser}
             updateUser={updateUser}
+            appData={appData}
+            setAppData={setAppData}
         />
     }
 

@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { MainContentProps } from '../../types';
 import { Question, Comment, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer } from '../../types';
@@ -583,14 +584,14 @@ export const NotebookDetailView: React.FC<{
                 case 'default':
                 default:
                     if (notebook !== 'all') {
-                        // FIX: In `questionsInNotebook` useMemo, used `Array.isArray` to safely handle `notebook.question_ids` and prevent potential runtime errors, improving type safety.
+                        // FIX: Added a filter for boolean values and a cast to any[] to robustly handle potentially malformed data from the database, preventing runtime errors and satisfying TypeScript's type checker.
+                        // FIX: Explicitly typed `questionIds` to `string[]` to avoid type inference issues.
                         // FIX: Use a type guard to safely filter notebook.question_ids, ensuring it's a clean array of strings.
                         // FIX: Cast `notebook.question_ids` to `any[]` to force TypeScript to re-evaluate the type of `id` in the filter, resolving potential type inference issues with data from the database.
                         const questionIds: string[] = Array.isArray(notebook.question_ids) ? (notebook.question_ids as any[]).filter((id): id is string => typeof id === 'string') : [];
                         const orderMap = new Map(questionIds.map((id, index) => [id, index]));
-                        // FIX: Removed explicit types for `a` and `b` to allow TypeScript to correctly infer them from the array type, resolving the 'unknown' type error.
-                        // FIX: Explicitly type `a` and `b` as `Question` to resolve type inference issue where they were being inferred as `unknown`.
-                        groupToSort.sort((a: Question, b: Question) => {
+                        // FIX: Removed explicit types for `a` and `b` to allow TypeScript to correctly infer them from the array, which should resolve the 'unknown' type error.
+                        groupToSort.sort((a, b) => {
                             const orderA = orderMap.get(a.id) ?? Infinity;
                             const orderB = orderMap.get(b.id) ?? Infinity;
                             if (orderA < orderB) return -1;
@@ -658,15 +659,6 @@ export const NotebookDetailView: React.FC<{
     }, [questionsInNotebook, questionSortOrder, prioritizeApostilas, notebook, stableRandomSort, showWrongOnly, appData.userQuestionAnswers, currentUser.id, notebookId]);
 
 
-    const currentQuestion = sortedQuestions[currentQuestionIndex];
-
-    // Save current question to localStorage
-    useEffect(() => {
-        if (currentQuestion) {
-            localStorage.setItem('procap_lastQuestionId', currentQuestion.id);
-        }
-    }, [currentQuestion]);
-    
     // Effect to handle navigation to a specific question
     useEffect(() => {
         if (questionIdToFocus && sortedQuestions.length > 0) {
@@ -676,6 +668,8 @@ export const NotebookDetailView: React.FC<{
             }
         }
     }, [questionIdToFocus, sortedQuestions]);
+
+    const currentQuestion = sortedQuestions[currentQuestionIndex];
     
     useEffect(() => {
         if (!currentQuestion) return;

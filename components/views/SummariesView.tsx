@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { MainContentProps } from '../../types';
 import { Summary, Comment, ContentType } from '../../types';
@@ -79,7 +80,7 @@ export const SummariesView: React.FC<SummariesViewProps> = ({ allItems, appData,
         aiFilterIds, isFiltering, isGenerating, setIsGenerating,
         generateModalOpen, setGenerateModalOpen, generationPrompt,
         processedItems, handleAiFilter, handleClearFilter, handleOpenGenerateModal
-    } = useContentViewController(allItems, currentUser, appData, contentType, 'source');
+    } = useContentViewController(allItems, currentUser, appData, contentType, 'source', expanded);
 
     const handleToggleGroup = (groupKey: string) => {
         setOpenGroups(prev => {

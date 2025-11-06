@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { AppData, User, ContentType } from '../types';
 import { filterItemsByPrompt } from '../services/geminiService';
 
@@ -10,7 +10,8 @@ export const useContentViewController = (
     currentUser: User, 
     appData: AppData, 
     contentType: ContentType,
-    initialSort: SortOption = 'temp'
+    initialSort: SortOption = 'temp',
+    ignoreFilterForId: string | null = null
 ) => {
     const [sort, setSort] = useState<SortOption>(initialSort);
     const [filter, setFilter] = useState<FilterStatus>('all');
@@ -38,6 +39,7 @@ export const useContentViewController = (
         
         if (filter !== 'all') {
             items = items.filter(item => {
+                if (item.id === ignoreFilterForId) return true; // Always include this item
                 const interaction = appData.userContentInteractions.find(i => i.user_id === currentUser.id && i.content_id === item.id && i.content_type === contentType);
                 const isRead = interaction?.is_read || false;
                 return filter === 'read' ? isRead : !isRead;
@@ -96,7 +98,7 @@ export const useContentViewController = (
         }
 
         return items;
-    }, [allItems, sort, filter, favoritesOnly, aiFilterIds, appData.userContentInteractions, currentUser.id, contentType]);
+    }, [allItems, sort, filter, favoritesOnly, aiFilterIds, appData.userContentInteractions, currentUser.id, contentType, ignoreFilterForId]);
     
     const handleAiFilter = async (prompt: string) => {
         if (!prompt) return;

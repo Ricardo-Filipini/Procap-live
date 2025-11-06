@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { MainContentProps } from '../../types';
 import { Flashcard, Comment, ContentType } from '../../types';
@@ -141,7 +142,12 @@ export const FlashcardsView: React.FC<FlashcardsViewProps> = ({ allItems, appDat
         } else if (action === 'vote') {
              const commentIndex = updatedComments.findIndex(c => c.id === payload.commentId);
             if (commentIndex > -1) {
-                updatedComments[commentIndex][`${payload.voteType}_votes`] += 1;
+                // FIX: Refactored to avoid dynamic property access with `+=` which can cause type errors.
+                if (payload.voteType === 'hot') {
+                    updatedComments[commentIndex].hot_votes = (updatedComments[commentIndex].hot_votes || 0) + 1;
+                } else if (payload.voteType === 'cold') {
+                    updatedComments[commentIndex].cold_votes = (updatedComments[commentIndex].cold_votes || 0) + 1;
+                }
             }
         }
         

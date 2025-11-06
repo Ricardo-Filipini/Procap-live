@@ -1,4 +1,6 @@
 
+
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { MainContentProps } from '../../types';
 import { Flashcard, Comment, ContentType } from '../../types';
@@ -46,19 +48,7 @@ export const FlashcardsView: React.FC<FlashcardsViewProps> = ({ allItems, appDat
         aiFilterIds, isFiltering, isGenerating, setIsGenerating,
         generateModalOpen, setGenerateModalOpen, generationPrompt,
         processedItems, handleAiFilter, handleClearFilter, handleOpenGenerateModal
-    } = useContentViewController(itemsToDisplay, currentUser, appData, contentType, 'source');
-
-    const finalItemsToRender = useMemo(() => {
-        const items = Array.isArray(processedItems) ? processedItems : Object.values(processedItems).flat();
-        if (flipped && filter === 'unread') {
-            const flippedCard = allItems.find(item => item.id === flipped);
-            if (flippedCard && !items.some(item => item.id === flipped)) {
-                // If the flipped card was filtered out, add it back temporarily
-                return [...items, flippedCard];
-            }
-        }
-        return processedItems; // Return original if no special condition
-    }, [processedItems, flipped, filter, allItems]);
+    } = useContentViewController(itemsToDisplay, currentUser, appData, contentType, 'source', flipped);
 
 
     const handleToggleGroup = (groupKey: string) => {
@@ -120,7 +110,12 @@ export const FlashcardsView: React.FC<FlashcardsViewProps> = ({ allItems, appDat
         } else if (action === 'vote') {
              const commentIndex = updatedComments.findIndex(c => c.id === payload.commentId);
             if (commentIndex > -1) {
-                updatedComments[commentIndex][`${payload.voteType}_votes`] += 1;
+                // FIX: Refactored to avoid dynamic property access with `+=` which can cause type errors.
+                if (payload.voteType === 'hot') {
+                    updatedComments[commentIndex].hot_votes = (updatedComments[commentIndex].hot_votes || 0) + 1;
+                } else if (payload.voteType === 'cold') {
+                    updatedComments[commentIndex].cold_votes = (updatedComments[commentIndex].cold_votes || 0) + 1;
+                }
             }
         }
         
@@ -197,9 +192,9 @@ export const FlashcardsView: React.FC<FlashcardsViewProps> = ({ allItems, appDat
             
             <FontSizeControl fontSize={fontSize} setFontSize={setFontSize} className="mb-4" />
             <div className="space-y-6">
-                {Array.isArray(finalItemsToRender) 
-                    ? renderItems(finalItemsToRender)
-                    : Object.entries(finalItemsToRender as Record<string, any[]>).map(([groupKey, items]: [string, any[]]) => {
+                {Array.isArray(processedItems) 
+                    ? renderItems(processedItems)
+                    : Object.entries(processedItems as Record<string, any[]>).map(([groupKey, items]: [string, any[]]) => {
                         const isHighlighted = groupKey.startsWith('(Apostila)');
                         return (
                             <details key={groupKey} open={openGroups.has(groupKey)} className={`bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark transition-all ${isHighlighted ? 'border-primary-light dark:border-primary-dark border-2 shadow-lg' : ''}`}>

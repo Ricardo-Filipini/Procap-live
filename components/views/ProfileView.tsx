@@ -1,4 +1,5 @@
 
+
 import React, { useState, useMemo } from 'react';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
 import { MainContentProps, StudyPlan, XpEvent } from '../../types';
@@ -371,7 +372,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ currentUser: user, app
                         <h3 className="text-xl font-semibold mb-4">Conquistas</h3>
                         <div className="flex flex-wrap gap-2">
                             {Array.isArray(user.achievements) && user.achievements.length > 0 ? (
-                                ((user.achievements as unknown as string[]).slice().sort().map((ach: string) => (
+                                // FIX: Removed the redundant and potentially problematic 'as unknown as string[]' cast.
+                                (user.achievements.slice().sort().map((ach: string) => (
                                     <div key={ach} title={ach} className="bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-200 text-sm font-semibold px-3 py-1 rounded-full">
                                         {ach}
                                     </div>

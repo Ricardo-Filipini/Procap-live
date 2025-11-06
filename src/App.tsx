@@ -174,7 +174,7 @@ const App: React.FC = () => {
       localStorage.removeItem('procap_lastUserId');
       localStorage.removeItem('procap_lastView');
       localStorage.removeItem('procap_lastNotebookId');
-      localStorage.removeItem('procap_lastQuestionIndex');
+      localStorage.removeItem('procap_lastQuestionId');
   };
   
   const updateUser = async (updatedUser: User) => {

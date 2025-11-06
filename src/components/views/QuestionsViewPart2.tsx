@@ -1,7 +1,6 @@
 
 
 
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { MainContentProps } from '../../types';
 import { Question, Comment, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer } from '../../types';
@@ -591,9 +590,8 @@ export const NotebookDetailView: React.FC<{
                         // FIX: Cast `notebook.question_ids` to `any[]` to force TypeScript to re-evaluate the type of `id` in the filter, resolving potential type inference issues with data from the database.
                         const questionIds: string[] = Array.isArray(notebook.question_ids) ? (notebook.question_ids as any[]).filter((id): id is string => typeof id === 'string') : [];
                         const orderMap = new Map(questionIds.map((id, index) => [id, index]));
-                        // FIX: Removed explicit types for `a` and `b` to allow TypeScript to correctly infer them from the array type, resolving the 'unknown' type error.
-                        // FIX: Explicitly type `a` and `b` as `Question` to resolve type inference issue where they were being inferred as `unknown`.
-                        groupToSort.sort((a: Question, b: Question) => {
+                        // FIX: Removed explicit types for `a` and `b` to allow TypeScript to correctly infer them from the array, which should resolve the 'unknown' type error.
+                        groupToSort.sort((a, b) => {
                             const orderA = orderMap.get(a.id) ?? Infinity;
                             const orderB = orderMap.get(b.id) ?? Infinity;
                             if (orderA < orderB) return -1;
