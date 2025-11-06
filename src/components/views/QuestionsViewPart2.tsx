@@ -539,7 +539,8 @@ export const NotebookDetailView: React.FC<{
         if (notebook === 'all') return allQuestions;
         // FIX: In `questionsInNotebook` useMemo, used `Array.isArray` to safely handle `notebook.question_ids` and prevent potential runtime errors, improving type safety.
         // FIX: Use a type guard to safely filter notebook.question_ids, ensuring it's a clean array of strings.
-        const questionIds: string[] = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id): id is string => typeof id === 'string') : [];
+        // FIX: Cast `notebook.question_ids` to `any[]` to force TypeScript to re-evaluate the type of `id` in the filter, resolving potential type inference issues with data from the database.
+        const questionIds: string[] = Array.isArray(notebook.question_ids) ? (notebook.question_ids as any[]).filter((id): id is string => typeof id === 'string') : [];
         const idSet = new Set(questionIds);
         return allQuestions.filter(q => idSet.has(q.id));
     }, [notebook, allQuestions]);
@@ -550,7 +551,12 @@ export const NotebookDetailView: React.FC<{
         return (a: Question, b: Question) => (randomValues.get(a.id) ?? 0) - (randomValues.get(b.id) ?? 0);
     }, [questionsInNotebook, shuffleTrigger]);
 
+    const prevQuestionSortOrder = useRef(questionSortOrder);
+
     useEffect(() => {
+        const sortChanged = prevQuestionSortOrder.current !== questionSortOrder;
+        prevQuestionSortOrder.current = questionSortOrder;
+
         let questionsToProcess = [...questionsInNotebook];
 
         if (showWrongOnly) {
@@ -581,11 +587,13 @@ export const NotebookDetailView: React.FC<{
                         // FIX: Added a filter for boolean values and a cast to any[] to robustly handle potentially malformed data from the database, preventing runtime errors and satisfying TypeScript's type checker.
                         // FIX: Explicitly typed `questionIds` to `string[]` to avoid type inference issues.
                         // FIX: Use a type guard to safely filter notebook.question_ids, ensuring it's a clean array of strings.
-                        const questionIds: string[] = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id): id is string => typeof id === 'string') : [];
+                        // FIX: Cast `notebook.question_ids` to `any[]` to force TypeScript to re-evaluate the type of `id` in the filter, resolving potential type inference issues with data from the database.
+                        const questionIds: string[] = Array.isArray(notebook.question_ids) ? (notebook.question_ids as any[]).filter((id): id is string => typeof id === 'string') : [];
                         const orderMap = new Map(questionIds.map((id, index) => [id, index]));
-                        groupToSort.sort((a, b) => {
-                            const orderA = orderMap.get(String(a.id)) ?? Infinity;
-                            const orderB = orderMap.get(String(b.id)) ?? Infinity;
+                        // FIX: Explicitly type `a` and `b` in the sort callback to `Question` to resolve type inference issues, and remove the redundant `String()` conversion for `a.id` and `b.id`.
+                        groupToSort.sort((a: Question, b: Question) => {
+                            const orderA = orderMap.get(a.id) ?? Infinity;
+                            const orderB = orderMap.get(b.id) ?? Infinity;
                             if (orderA < orderB) return -1;
                             if (orderA > orderB) return 1;
                             return 0;
@@ -609,22 +617,47 @@ export const NotebookDetailView: React.FC<{
             finalSortedQuestions = sortGroup(questionsToProcess);
         }
         
-        const previousQuestionId = sortedQuestions[currentQuestionIndex]?.id;
-        
-        setSortedQuestions(finalSortedQuestions);
+        const previousQuestionId = currentQuestion?.id;
+        const isFilteredOut = previousQuestionId && !finalSortedQuestions.some(q => q.id === previousQuestionId);
 
-        if (previousQuestionId) {
-            const newIndex = finalSortedQuestions.findIndex(q => q.id === previousQuestionId);
-            if (newIndex !== -1 && questionSortOrder !== 'random') {
-                 setCurrentQuestionIndex(newIndex);
-            } else if (newIndex === -1 && finalSortedQuestions.length > 0) {
+        if (isFilteredOut && isCompleted) {
+            // The user just answered the question, and it was filtered out (e.g., by "show wrong only").
+            // We do nothing here, keeping the current question on screen so the user can see the explanation.
+            // The list will sync up when they navigate to a new question.
+            return;
+        }
+
+        setSortedQuestions(finalSortedQuestions);
+        
+        if (sortChanged) {
+            // A sort was explicitly requested. Per user request, we keep the current index.
+            const boundedIndex = Math.min(currentQuestionIndex, Math.max(0, finalSortedQuestions.length - 1));
+            if (boundedIndex !== currentQuestionIndex) {
+                setCurrentQuestionIndex(boundedIndex);
+            }
+        } else {
+            // This is a filter change or an answer submission (that didn't get filtered out).
+            // We want to stay on the same question if possible.
+            if (previousQuestionId) {
+                const newIndex = finalSortedQuestions.findIndex(q => q.id === previousQuestionId);
+                if (newIndex !== -1) {
+                    // The question is still in the new list, so we make sure we are on it.
+                    if (currentQuestionIndex !== newIndex) {
+                        setCurrentQuestionIndex(newIndex);
+                    }
+                } else {
+                     // The question is gone for a reason other than just being answered.
+                     // We must move to a valid index.
+                     const boundedIndex = Math.min(currentQuestionIndex, Math.max(0, finalSortedQuestions.length - 1));
+                     setCurrentQuestionIndex(boundedIndex);
+                }
+            } else if (finalSortedQuestions.length > 0) {
                  setCurrentQuestionIndex(0);
             }
-        } else if (finalSortedQuestions.length > 0) {
-            setCurrentQuestionIndex(0);
         }
 
     }, [questionsInNotebook, questionSortOrder, prioritizeApostilas, notebook, stableRandomSort, showWrongOnly, appData.userQuestionAnswers, currentUser.id, notebookId]);
+
 
     // Effect to handle navigation to a specific question
     useEffect(() => {
