@@ -3,26 +3,26 @@ import { AppData, User, Source, ChatMessage, UserMessageVote, UserSourceVote, Su
 
 /*
 -- =================================================================
--- 🚨 PROCAP - G200: SCRIPT DE CONFIGURAÇÃO DO BANCO DE DADOS (v5.7) 🚨
+-- 🚨 PROCAP - G200: SCRIPT DE CONFIGURAÇÃO DO BANCO DE DADOS (v5.8) 🚨
 -- =================================================================
 --
 -- INSTRUÇÕES:
 -- Este script é IDEMPOTENTE e SEGURO para ser executado múltiplas vezes.
 --
--- 1. Acesse seu projeto no Supabase.
--- 2. No menu lateral, vá para "SQL Editor".
--- 3. Clique em "+ New query".
--- 4. COPIE E COLE **TODO O CONTEÚDO** DESTE BLOCO SQL ABAIXO.
--- 5. Clique em "RUN".
+-- 1.  (SE NECESSÁRIO) CRIE OS BUCKETS:
+--     - No menu do Supabase, vá em "Storage".
+--     - Se não existirem, crie DOIS buckets públicos chamados `sources` e `files`.
 --
--- O QUE HÁ DE NOVO (v5.7):
---   - LEADERBOARD FIX: Adicionada uma nova tabela `xp_events` para registrar
---     TODOS os ganhos (e perdas) de XP com um timestamp. Isso centraliza
---     a lógica de pontuação e corrige a inconsistência onde os placares
---     filtrados por tempo (diário, hora, etc.) não refletiam todos os
---     tipos de ganhos de XP.
---   - RLS ATUALIZADO: A nova tabela `xp_events` foi incluída nas políticas
---     de segurança (RLS), permitindo que a aplicação leia e escreva nela.
+-- 2.  EXECUTE ESTE SCRIPT:
+--     - No menu lateral, vá para "SQL Editor".
+--     - Clique em "+ New query".
+--     - COPIE E COLE **TODO O CONTEÚDO** DESTE BLOCO SQL ABAIXO.
+--     - Clique em "RUN".
+--
+-- O QUE HÁ DE NOVO (v5.8):
+--   - STORAGE POLICY FIX: Adicionada uma política de segurança para o bucket `files`,
+--     que é usado pela funcionalidade de "Links/Arquivos". A ausência desta
+--     política poderia impedir o upload e download de arquivos nessa seção.
 -- =================================================================
 
 -- Parte 1: Correção e Padronização das Políticas de Segurança (RLS)
@@ -42,19 +42,22 @@ BEGIN
             'audio_summaries', 'chat_messages', 'user_message_votes', 'user_source_votes',
             'user_content_interactions', 'question_notebooks', 'user_notebook_interactions',
             'user_question_answers', 'case_studies', 'schedule_events',
-            'links_files', 'study_plans', 'xp_events' -- Adicionada a nova tabela
+            'links_files', 'study_plans', 'xp_events'
         )
     LOOP
+        -- Habilitar RLS se não estiver ativo
         SELECT relrowsecurity INTO is_rls_enabled FROM pg_class WHERE relname = t AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'public');
         IF NOT is_rls_enabled THEN
             EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY;', t);
         END IF;
-        
+
+        -- Limpar políticas antigas
         FOR policy_name IN (SELECT policyname FROM pg_policies WHERE schemaname = 'public' AND tablename = t)
         LOOP
             EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I;', policy_name, t);
         END LOOP;
 
+        -- Criar política genérica de acesso total
         EXECUTE format('
             CREATE POLICY "Allow all operations for application users"
             ON public.%I
@@ -66,10 +69,10 @@ BEGIN
 END;
 $$;
 CALL fix_rls_policies_v2();
-DROP PROCEDURE fix_rls_policies_v2();
+DROP PROCEDURE IF EXISTS fix_rls_policies_v2();
 
 
--- Parte 2: Criação de Novas Tabelas
+-- Parte 2: Criação de Novas Tabelas (se não existirem)
 CREATE TABLE IF NOT EXISTS public.links_files (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
@@ -84,7 +87,6 @@ CREATE TABLE IF NOT EXISTS public.links_files (
     comments JSONB NOT NULL DEFAULT '[]'::jsonb
 );
 
--- NOVA TABELA PARA CORRIGIR A LEADERBOARD
 CREATE TABLE IF NOT EXISTS public.xp_events (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
@@ -96,6 +98,7 @@ CREATE TABLE IF NOT EXISTS public.xp_events (
 
 
 -- Parte 3: Padronização e Segurança das Funções de Votação (RPC)
+-- (O conteúdo das funções permanece o mesmo da v5.7, mas é reaplicado para garantir consistência)
 DROP FUNCTION IF EXISTS public.increment_vote(uuid, text, integer);
 DROP FUNCTION IF EXISTS public.increment_content_vote(text, text, text, integer);
 
@@ -131,6 +134,7 @@ BEGIN
 END;
 $$;
 
+
 -- Parte 4: Concessão de Permissões (Grants)
 GRANT USAGE ON SCHEMA public TO anon, authenticated;
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO anon, authenticated;
@@ -139,11 +143,12 @@ GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated;
 
 
 -- Parte 5: Políticas de Segurança para o Storage (Supabase Storage)
-CREATE OR REPLACE PROCEDURE fix_storage_policies()
+CREATE OR REPLACE PROCEDURE fix_storage_policies_v2()
 LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
 DECLARE
+    bucket_name TEXT;
     policy_name TEXT;
     table_oid OID;
     is_rls_enabled BOOLEAN;
@@ -154,27 +159,33 @@ BEGIN
         RETURN;
     END IF;
 
-    -- Habilita RLS se não estiver ativo
+    -- Habilita RLS na tabela de objetos do storage, se não estiver ativo
     SELECT relrowsecurity INTO is_rls_enabled FROM pg_class WHERE oid = table_oid;
     IF NOT is_rls_enabled THEN
         EXECUTE 'ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY';
     END IF;
 
-    -- Limpa políticas antigas para garantir uma configuração limpa
-    FOR policy_name IN (SELECT policyname FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects')
+    -- Itera sobre os buckets 'sources' e 'files' para aplicar as políticas
+    FOREACH bucket_name IN ARRAY ARRAY['sources', 'files']
     LOOP
-        EXECUTE format('DROP POLICY IF EXISTS %I ON storage.objects;', policy_name);
+        -- Limpa políticas antigas para o bucket atual
+        FOR policy_name IN (SELECT policyname FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname LIKE 'Allow public access to ' || bucket_name || '%')
+        LOOP
+            EXECUTE format('DROP POLICY IF EXISTS %I ON storage.objects;', policy_name);
+        END LOOP;
+
+        -- Cria a política de acesso público para o bucket atual
+        EXECUTE format('
+            CREATE POLICY "Allow public access to %s bucket"
+            ON storage.objects FOR ALL
+            USING (bucket_id = %L)
+            WITH CHECK (bucket_id = %L);
+        ', bucket_name, bucket_name, bucket_name);
     END LOOP;
-
-    CREATE POLICY "Allow public access to sources bucket"
-    ON storage.objects FOR ALL
-    USING (bucket_id = 'sources')
-    WITH CHECK (bucket_id = 'sources');
-
 END;
 $$;
-CALL fix_storage_policies();
-DROP PROCEDURE IF EXISTS fix_storage_policies();
+CALL fix_storage_policies_v2();
+DROP PROCEDURE IF EXISTS fix_storage_policies_v2();
 
 */
 

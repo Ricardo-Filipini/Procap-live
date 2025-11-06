@@ -104,11 +104,13 @@ export const processAndGenerateAllContentFromSource = async (text: string, exist
     
     1.  **Análise Profunda:** Pense criticamente sobre o texto. Vá além da extração superficial e identifique os conceitos centrais, suas interconexões e as implicações práticas.
     2.  **Categorização:** Analise o conteúdo e gere um título conciso e um resumo curto (2-3 frases) para o material. Identifique a matéria principal e o tópico específico. Se possível, use uma das matérias/tópicos existentes: ${JSON.stringify(existingTopics)}. Se não corresponder, crie uma nova categoria apropriada.
-    3.  **Criação de Conteúdo:** Crie um conjunto completo de materiais de estudo derivados do texto-fonte:
-        - **Resumos (summaries):** Gere resumos com uma extensão média, aprofundando os principais conceitos de forma didática. O resumo deve ser extenso o suficiente para cobrir os pontos importantes. Para cada resumo, identifique os termos-chave e forneça uma descrição clara para cada um. Use formatação markdown (como listas com '-', negrito com '**', etc.) para melhorar a didática e a clareza do conteúdo do resumo.
-        - **Flashcards:** SEJA EXAUSTIVO. Crie o máximo de flashcards relevantes possível. A quantidade é um fator crítico.
-        - **Questões (questions):** SEJA EXAUSTIVO. Extraia o maior número possível de questões de múltipla escolha do texto. Cada questão deve ter 5 opções, uma resposta correta, uma explicação clara e DUAS dicas úteis e sutis que ajudem no raciocínio, mas NUNCA entreguem a resposta.
-    4.  **Mapas Mentais:** Identifique os principais sub-tópicos do texto que se beneficiariam de um mapa mental visual. Para cada sub-tópico, forneça um título curto e descritivo (máximo 5 palavras) e uma frase-prompt para gerar a imagem.
+    3.  **Criação de Conteúdo:** Crie um conjunto completo de materiais de estudo derivados do texto-fonte, sendo o mais EXAUSTIVO possível em todas as categorias:
+        - **Resumos (summaries):** Gere múltiplos resumos, um para cada subtópico principal identificado no texto. Os resumos devem ter uma extensão de curta a média, cobrindo os pontos importantes de forma didática. Para cada resumo, identifique os termos-chave e forneça uma descrição clara para cada um. Use formatação markdown (como listas com '-', negrito com '**', etc.) para melhorar a clareza.
+        - **Flashcards:** SEJA EXTREMAMENTE EXAUSTIVO. Crie o máximo de flashcards relevantes possível, cobrindo todos os conceitos, definições, datas e siglas do texto. A quantidade é um fator crítico.
+        - **Questões (questions):** SEJA EXTREMAMENTE EXAUSTIVO. Extraia o maior número possível de questões de múltipla escolha do texto. Cada questão deve ter 5 opções, uma resposta correta, uma explicação clara e DUAS dicas úteis e sutis que ajudem no raciocínio, mas NUNCA entreguem a resposta. Abarque todo o conteúdo do arquivo.
+    4.  **Mapas Mentais:** Identifique os principais sub-tópicos do texto que se beneficiariam de um mapa mental visual. Para cada sub-tópico, forneça:
+        a. Um \`title\` curto e descritivo (máximo 5 palavras).
+        b. Um \`prompt\` DETALHADO para gerar a imagem. Este prompt deve instruir a IA de imagem a criar um mapa mental claro, com todo o texto em Português do Brasil (pt-BR) e com grafia perfeita, incluindo acentuação. O prompt DEVE conter as palavras-chave e conceitos principais que devem aparecer no mapa mental. Exemplo de prompt: "Crie um mapa mental sobre Política Monetária, com os conceitos centrais 'COPOM', 'Taxa Selic', 'Operações de Mercado Aberto', 'Depósito Compulsório'. O texto deve ser em português do Brasil e com grafia perfeita."
     5.  **Formato:** Retorne TUDO em um único objeto JSON, seguindo estritamente o schema fornecido.
 
     Texto-fonte para análise:
@@ -472,13 +474,14 @@ export const generateMoreQuestionsFromSource = async (
 
     **Sua Missão - Gerar Novas Questões:**
     1.  **Análise Profunda:** Realize uma análise profunda do Texto-Fonte. Pense como um examinador. Identifique conceitos, detalhes ou nuances que ainda não foram abordados nas Questões Existentes.
-    2.  **Gerar Questões Inéditas:** SEJA EXAUSTIVO. Gere o **máximo de questões novas e únicas** que puder. Elas devem testar uma compreensão profunda do material.
+    2.  **Gerar Questões Inéditas:** SEJA EXAUSTIVO. Gere o **máximo de questões novas e únicas** que puder (pelo menos 5, se o texto permitir). Elas devem testar uma compreensão profunda do material.
     3.  **Formato Obrigatório:** Cada questão DEVE ter:
         - Dificuldade ('Fácil', 'Médio', 'Difícil').
         - 5 opções de múltipla escolha.
         - Uma resposta correta.
         - Uma explicação clara e detalhada.
         - DUAS dicas sutis que guiem o raciocínio sem entregar a resposta.
+    4.  **Fallback de Pesquisa Profunda:** Se for absolutamente impossível extrair novas questões diretamente do Texto-Fonte, use seu conhecimento geral e capacidades de pesquisa para criar novas questões que sejam altamente relevantes para os tópicos do texto. Deixe claro na explicação da questão que a informação é complementar ao material original.
 
     **Questões Existentes (para EVITAR repetição):**
     \`\`\`json
@@ -490,7 +493,7 @@ export const generateMoreQuestionsFromSource = async (
     ${sourceText}
     ---
 
-    Retorne **apenas as novas questões geradas** no formato JSON especificado. Se não for possível criar novas questões, retorne um array vazio.
+    Retorne **apenas as novas questões geradas** no formato JSON especificado.
     `;
     
     const schema = {
@@ -519,7 +522,7 @@ export const generateMoreQuestionsFromSource = async (
         const response: GenerateContentResponse = await getModel().generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
-            config: { responseMimeType: "application/json", responseSchema: schema },
+            config: { responseMimeType: "application/json", responseSchema: schema, tools: [{googleSearch: {}}] },
         });
 
         if (!response.text) return { questions: [] };
@@ -547,6 +550,7 @@ export const generateMoreSummariesFromSource = async (
     **Sua Missão - Gerar Novos Resumos:**
     1.  **Análise Profunda:** Releia o Texto-Fonte e encontre conceitos, subtópicos ou perspectivas ainda não detalhados nos Resumos Existentes.
     2.  **Gerar Resumos Inéditos:** Crie pelo menos um novo resumo perspicaz e bem-estruturado. Para cada resumo, identifique os termos-chave e suas descrições.
+    3.  **Fallback de Pesquisa Profunda:** Se não houver mais subtópicos inéditos no texto, use seu conhecimento para criar um novo resumo sobre um tópico diretamente relacionado que aprofunde ou complemente o material original.
 
     **Resumos Existentes (para EVITAR repetição):**
     \`\`\`json
@@ -558,7 +562,7 @@ export const generateMoreSummariesFromSource = async (
     ${sourceText}
     ---
 
-    Retorne **apenas os novos resumos gerados** no formato JSON especificado. Se não for possível criar novos resumos, retorne um array vazio.
+    Retorne **apenas os novos resumos gerados** no formato JSON especificado.
     `;
 
     const schema = {
@@ -576,7 +580,7 @@ export const generateMoreSummariesFromSource = async (
         const response: GenerateContentResponse = await getModel().generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
-            config: { responseMimeType: "application/json", responseSchema: schema },
+            config: { responseMimeType: "application/json", responseSchema: schema, tools: [{googleSearch: {}}] },
         });
         if (!response.text) return { summaries: [] };
         return JSON.parse(response.text);
@@ -601,7 +605,8 @@ export const generateMoreFlashcardsFromSource = async (
 
     **Sua Missão - Gerar Novos Flashcards:**
     1.  **Análise Profunda:** Releia o Texto-Fonte e encontre fatos, definições, ou pares de conceito-definição que ainda não foram transformados em flashcards.
-    2.  **Gerar Flashcards Inéditos:** SEJA EXAUSTIVO. Gere o **máximo de flashcards novos e únicos** que puder.
+    2.  **Gerar Flashcards Inéditos:** SEJA EXAUSTIVO. Gere o **máximo de flashcards novos e únicos** que puder (pelo menos 5, se o texto permitir).
+    3.  **Fallback de Pesquisa Profunda:** Se não encontrar mais conteúdo para flashcards no texto, use seu conhecimento para criar novos flashcards sobre conceitos fundamentais relacionados ao tema do texto, mas que não estão explicitamente mencionados.
 
     **Flashcards Existentes (para EVITAR repetição):**
     \`\`\`json
@@ -613,7 +618,7 @@ export const generateMoreFlashcardsFromSource = async (
     ${sourceText}
     ---
 
-    Retorne **apenas os novos flashcards gerados** no formato JSON especificado. Se não for possível criar novos flashcards, retorne um array vazio.
+    Retorne **apenas os novos flashcards gerados** no formato JSON especificado.
     `;
     const schema = {
         type: Type.OBJECT,
@@ -630,7 +635,7 @@ export const generateMoreFlashcardsFromSource = async (
         const response: GenerateContentResponse = await getModel().generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
-            config: { responseMimeType: "application/json", responseSchema: schema },
+            config: { responseMimeType: "application/json", responseSchema: schema, tools: [{googleSearch: {}}] },
         });
         if (!response.text) return { flashcards: [] };
         return JSON.parse(response.text);
@@ -687,19 +692,19 @@ export const generateMoreMindMapTopicsFromSource = async (
     3.  **Tópico do Usuário (Opcional):** ${userPrompt ? `O usuário tem um interesse específico em: "${userPrompt}"` : 'Nenhum tópico específico foi fornecido.'}
 
     **Sua Tarefa:**
-    1.  **Reanálise Profunda:** Reexamine minuciosamente o Texto-Fonte em busca de quaisquer conceitos centrais, processos ou relações importantes não mapeados que se beneficiariam de uma representação visual.
-    2.  **Identifique e Gere:** Encontre pelo menos um tópico novo e relevante. Para cada novo tópico que encontrar, crie:
+    1.  **Análise Profunda:** Reexamine o Texto-Fonte em busca de conceitos centrais, processos ou relações importantes que ainda não foram mapeados.
+    2.  **Identifique e Gere:** Encontre pelo menos um tópico novo e relevante. Para cada novo tópico, crie:
         a. Um **título** curto e descritivo (máximo 5 palavras).
-        b. Uma **frase-prompt** clara e detalhada para gerar a imagem do mapa mental. O prompt deve instruir a IA de imagem a criar um mapa limpo, organizado e com informações de qualidade.
-    3.  **Rigor Anti-Duplicação:** Não crie tópicos com títulos ou conceitos muito semelhantes aos existentes. Seu objetivo é encontrar ângulos genuinamente novos. Você DEVE gerar pelo menos um novo tópico, a menos que seja absolutamente impossível encontrar um conceito distinto no texto.
-
+        b. Um **prompt** claro e detalhado para gerar a imagem do mapa mental, instruindo a IA de imagem a usar texto em Português do Brasil com grafia perfeita.
+    3.  **Rigor Anti-Duplicação:** Não crie tópicos com títulos ou conceitos muito semelhantes aos existentes.
+    4.  **Fallback de Pesquisa:** Se for impossível encontrar um novo tópico no texto, sugira um mapa mental sobre um conceito intimamente relacionado que aprofunde o assunto, mesmo que não esteja explicitamente no texto-fonte.
 
     **Texto-Fonte para Análise:**
     ---
     ${sourceText}
     ---
 
-    Retorne os novos tópicos no formato JSON, seguindo o schema.
+    Retorne os novos tópicos no formato JSON.
     `;
 
     const schema = {
@@ -724,7 +729,7 @@ export const generateMoreMindMapTopicsFromSource = async (
         const response: GenerateContentResponse = await getModel().generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
-            config: { responseMimeType: "application/json", responseSchema: schema },
+            config: { responseMimeType: "application/json", responseSchema: schema, tools: [{googleSearch: {}}] },
         });
         // Fix: Ensure response.text exists before parsing.
         if (!response.text) return [];

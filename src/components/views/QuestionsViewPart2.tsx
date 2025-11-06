@@ -256,7 +256,8 @@ const NotebookStatsModal: React.FC<{
         }
         // FIX: Ensure `question_ids` is an array of strings before creating a Set to prevent type errors.
         // FIX: Use a type guard to safely filter notebook.question_ids, ensuring it's a clean array of strings.
-        const ids = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id): id is string => typeof id === 'string') : [];
+        // FIX: Explicitly type 'id' as 'unknown' to satisfy stricter type checking for the type guard.
+        const ids = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id: unknown): id is string => typeof id === 'string') : [];
         return new Set(ids);
     }, [notebook, appData.sources]);
 
@@ -538,7 +539,8 @@ export const NotebookDetailView: React.FC<{
         if (notebook === 'all') return allQuestions;
         // FIX: In `questionsInNotebook` useMemo, used `Array.isArray` to safely handle `notebook.question_ids` and prevent potential runtime errors, improving type safety.
         // FIX: Use a type guard to safely filter notebook.question_ids, ensuring it's a clean array of strings.
-        const questionIds: string[] = Array.isArray(notebook.question_ids) ? (notebook.question_ids as any[]).filter((id): id is string => typeof id === 'string') : [];
+        // FIX: Explicitly type 'id' as 'unknown' to satisfy stricter type checking for the type guard.
+        const questionIds: string[] = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id: unknown): id is string => typeof id === 'string') : [];
         const idSet = new Set(questionIds);
         return allQuestions.filter(q => idSet.has(q.id));
     }, [notebook, allQuestions]);
@@ -585,7 +587,8 @@ export const NotebookDetailView: React.FC<{
                 case 'default':
                 default:
                     if (notebook !== 'all') {
-                        const questionIds: string[] = Array.isArray(notebook.question_ids) ? (notebook.question_ids as any[]).filter((id): id is string => typeof id === 'string') : [];
+                        // FIX: Explicitly type 'id' as 'unknown' to satisfy stricter type checking for the type guard.
+                        const questionIds: string[] = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id: unknown): id is string => typeof id === 'string') : [];
                         const orderMap = new Map(questionIds.map((id, index) => [id, index]));
                         groupToSort.sort((a: Question, b: Question) => {
                             const orderA = orderMap.get(a.id) ?? Infinity;
@@ -614,36 +617,31 @@ export const NotebookDetailView: React.FC<{
         }
         
         const previousQuestionId = currentQuestion?.id;
-
+        setSortedQuestions(finalSortedQuestions);
+        
         if (enablingWrongOnly) {
-            setSortedQuestions(finalSortedQuestions);
             setCurrentQuestionIndex(0);
-        } else {
-            const isFilteredOut = previousQuestionId && !finalSortedQuestions.some(q => q.id === previousQuestionId);
-
-            if (isFilteredOut && isCompleted && !sortChanged) {
-                return;
-            }
-
-            setSortedQuestions(finalSortedQuestions);
-            
-            if (sortChanged) {
-                const boundedIndex = Math.min(currentQuestionIndex, Math.max(0, finalSortedQuestions.length - 1));
+        } else if (sortChanged) {
+            const boundedIndex = Math.min(currentQuestionIndex, Math.max(0, finalSortedQuestions.length - 1));
+            if (boundedIndex !== currentQuestionIndex) {
                 setCurrentQuestionIndex(boundedIndex);
-            } else {
-                if (previousQuestionId) {
-                    const newIndex = finalSortedQuestions.findIndex(q => q.id === previousQuestionId);
-                    if (newIndex !== -1) {
+            }
+        } else {
+            if (previousQuestionId) {
+                const newIndex = finalSortedQuestions.findIndex(q => q.id === previousQuestionId);
+                if (newIndex !== -1) {
+                    if (currentQuestionIndex !== newIndex) {
                         setCurrentQuestionIndex(newIndex);
-                    } else {
-                        const boundedIndex = Math.min(currentQuestionIndex, Math.max(0, finalSortedQuestions.length - 1));
-                        setCurrentQuestionIndex(boundedIndex);
                     }
-                } else if (finalSortedQuestions.length > 0) {
-                    setCurrentQuestionIndex(0);
+                } else {
+                    const boundedIndex = Math.min(currentQuestionIndex, Math.max(0, finalSortedQuestions.length - 1));
+                    setCurrentQuestionIndex(boundedIndex);
                 }
+            } else if (finalSortedQuestions.length > 0) {
+                 setCurrentQuestionIndex(0);
             }
         }
+
     }, [questionsInNotebook, questionSortOrder, prioritizeApostilas, notebook, stableRandomSort, showWrongOnly, appData.userQuestionAnswers, currentUser.id, notebookId]);
 
 

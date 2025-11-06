@@ -1,8 +1,9 @@
 
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { MainContentProps } from '../../types';
 import { Source } from '../../types';
-import { CloudArrowUpIcon, DocumentTextIcon, PencilIcon, PlusIcon, SparklesIcon, TrashIcon, MinusIcon } from '../Icons';
+import { CloudArrowUpIcon, DocumentTextIcon, PencilIcon, PlusIcon, SparklesIcon, TrashIcon, MinusIcon, DownloadIcon } from '../Icons';
 import { Modal } from '../Modal';
 import { processAndGenerateAllContentFromSource, generateImageForMindMap, generateMoreMindMapTopicsFromSource, generateMoreQuestionsFromSource, generateMoreSummariesFromSource, generateMoreFlashcardsFromSource } from '../../services/geminiService';
 // FIX: Replaced incrementVoteCount with incrementSourceVote for type safety and correctness.
@@ -564,12 +565,31 @@ export const SourcesView: React.FC<SourcesViewProps> = ({ appData, setAppData, c
                                 <div key={type} className="bg-card-light dark:bg-card-dark p-3 rounded-lg border border-border-light dark:border-border-dark flex flex-col justify-between">
                                     <p className="font-semibold">{typeNameMap[type]}: {count}</p>
                                     <button onClick={() => handleGenerateMore(source, type)} disabled={isGeneratingThis} className="text-sm text-primary-light dark:text-primary-dark hover:underline mt-2 disabled:opacity-50 flex items-center gap-1">
-                                        {isGeneratingThis ? 'Gerando...' : <><SparklesIcon className="w-4 h-4" /> Explorar</>}
+                                        {isGeneratingThis ? 'Gerando...' : <><SparklesIcon className="w-4 h-4" /> Gerar mais</>}
                                     </button>
                                 </div>
                             );
                         })}
                     </div>
+                     {source.original_filename && source.original_filename.length > 0 && (
+                        <div className="pt-4 border-t border-border-light dark:border-border-dark">
+                            <h4 className="font-semibold text-sm mb-2">Arquivos Originais</h4>
+                            <div className="flex flex-col items-start gap-2">
+                                {source.original_filename.map((filename, index) => {
+                                    const path = source.storage_path?.[index];
+                                    if (!path || !supabase) return null;
+                                    const { data: { publicUrl } } = supabase.storage.from('sources').getPublicUrl(path);
+
+                                    return (
+                                        <a key={index} href={publicUrl} download={filename} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-primary-light hover:underline">
+                                            <DownloadIcon className="w-4 h-4" />
+                                            {filename}
+                                        </a>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
                 </div>
             </details>
         );
