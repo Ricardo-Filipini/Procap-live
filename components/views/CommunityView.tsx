@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AppData, User, ChatMessage, MainContentProps } from '../../types';
 import { PaperAirplaneIcon, MinusIcon, PlusIcon } from '../Icons';
@@ -73,25 +74,61 @@ const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dis
     }, [setAppData]);
 
     const handleSend = async () => {
-        if (!input.trim()) return;
-        const userMessage: Omit<ChatMessage, 'id' | 'hot_votes' | 'cold_votes'> = { author: currentUser.pseudonym, text: input, timestamp: new Date().toISOString() };
-        
-        const insertedMessage = await addChatMessage(userMessage);
-
-        const lowerInput = input.toLowerCase();
-        if (insertedMessage && (lowerInput.includes('@ia') || lowerInput.includes('@ed'))) {
-            setIsLoading(true);
-            const history = appData.chatMessages.filter(m => m.author === currentUser.pseudonym || m.author === 'IA').map(m => ({
-                role: m.author === currentUser.pseudonym ? 'user' : 'model',
-                parts: [{ text: m.text }]
-            }));
-            
-            const aiResponseText = await getSimpleChatResponse(history, input);
-            const aiMessage: Omit<ChatMessage, 'id' | 'hot_votes' | 'cold_votes'> = { author: 'IA', text: aiResponseText, timestamp: new Date().toISOString() };
-            await addChatMessage(aiMessage);
-            setIsLoading(false);
-        }
+        if (!input.trim() || isLoading) return;
+    
+        const textToSend = input.trim();
         setInput('');
+    
+        const userMessagePayload: Omit<ChatMessage, 'id' | 'hot_votes' | 'cold_votes'> = {
+            author: currentUser.pseudonym,
+            text: textToSend,
+            timestamp: new Date().toISOString()
+        };
+        
+        const insertedUserMessage = await addChatMessage(userMessagePayload);
+    
+        if (insertedUserMessage) {
+            setAppData(prev => ({
+                ...prev,
+                chatMessages: [...prev.chatMessages.filter(m => m.id !== insertedUserMessage.id), insertedUserMessage]
+            }));
+    
+            const lowerInput = textToSend.toLowerCase();
+            if (lowerInput.includes('@ia') || lowerInput.includes('@ed')) {
+                setIsLoading(true);
+                try {
+                    const history = [...appData.chatMessages, insertedUserMessage]
+                        .filter(m => m.author === currentUser.pseudonym || m.author === 'IA')
+                        .map(m => ({
+                            role: m.author === currentUser.pseudonym ? 'user' : 'model',
+                            parts: [{ text: m.text }]
+                        }));
+    
+                    const aiResponseText = await getSimpleChatResponse(history, textToSend);
+                    
+                    const aiMessagePayload: Omit<ChatMessage, 'id' | 'hot_votes' | 'cold_votes'> = {
+                        author: 'IA',
+                        text: aiResponseText,
+                        timestamp: new Date().toISOString()
+                    };
+                    const insertedAiMessage = await addChatMessage(aiMessagePayload);
+    
+                    if (insertedAiMessage) {
+                        setAppData(prev => ({
+                            ...prev,
+                            chatMessages: [...prev.chatMessages.filter(m => m.id !== insertedAiMessage.id), insertedAiMessage]
+                        }));
+                    }
+                } catch (error) {
+                    console.error("Error with AI response in chat:", error);
+                } finally {
+                    setIsLoading(false);
+                }
+            }
+        } else {
+            setInput(textToSend);
+            alert("Falha ao enviar a mensagem. Tente novamente.");
+        }
     };
     
     const handleVote = async (messageId: string, type: 'hot' | 'cold', increment: 1 | -1) => {

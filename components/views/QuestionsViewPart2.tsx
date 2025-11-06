@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { MainContentProps } from '../../types';
 import { Question, Comment, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer } from '../../types';
@@ -255,7 +256,7 @@ const NotebookStatsModal: React.FC<{
             return new Set(appData.sources.flatMap(s => s.questions.map(q => q.id)));
         }
         // FIX: Ensure `question_ids` is an array of strings before creating a Set to prevent type errors.
-        const ids = Array.isArray(notebook.question_ids) ? notebook.question_ids.map(String) : [];
+        const ids = Array.isArray(notebook.question_ids) ? (notebook.question_ids as any[]).filter(Boolean).map(String) : [];
         return new Set(ids);
     }, [notebook, appData.sources]);
 
@@ -477,10 +478,8 @@ export const NotebookDetailView: React.FC<{
     const [userAnswers, setUserAnswers] = useState<Map<string, UserQuestionAnswer>>(new Map());
     const notebookId = notebook === 'all' ? 'all_questions' : notebook.id;
     
-    // This new useEffect will run when the notebook view is opened, fetching the latest answers.
     useEffect(() => {
         const fetchFreshAnswers = async () => {
-            // supabase is imported from supabaseClient
             if (!supabase) return;
             
             const { data, error } = await supabase
@@ -492,10 +491,7 @@ export const NotebookDetailView: React.FC<{
             if (error) {
                 console.error("Failed to fetch fresh answers for notebook:", error);
             } else if (data) {
-                // Update the global appData state with the freshest data.
-                // This will trigger the other useEffect to update the local 'userAnswers' map.
                 setAppData(prev => {
-                    // Use a Map to efficiently merge the fresh data, overwriting any stale local data.
                     const answerMap = new Map(prev.userQuestionAnswers.map(a => [a.id, a]));
                     data.forEach(freshAnswer => {
                         answerMap.set(freshAnswer.id, freshAnswer);
@@ -508,12 +504,11 @@ export const NotebookDetailView: React.FC<{
             }
         };
         
-        // Only run the fetch if we have a valid user and notebook.
         if (currentUser?.id && notebookId) {
             fetchFreshAnswers();
         }
 
-    }, [currentUser.id, notebookId, setAppData]); // Re-run if user or notebook changes.
+    }, [currentUser.id, notebookId, setAppData]);
 
     useEffect(() => {
         const answersForNotebook = appData.userQuestionAnswers.filter(
@@ -541,7 +536,8 @@ export const NotebookDetailView: React.FC<{
     const questionsInNotebook = useMemo(() => {
         if (notebook === 'all') return allQuestions;
         // FIX: In `questionsInNotebook` useMemo, used `Array.isArray` to safely handle `notebook.question_ids` and prevent potential runtime errors, improving type safety.
-        const questionIds = Array.isArray(notebook.question_ids) ? notebook.question_ids.map(String) : [];
+        // FIX: Explicitly typed `questionIds` to `string[]` to avoid type inference issues.
+        const questionIds: string[] = Array.isArray(notebook.question_ids) ? (notebook.question_ids as any[]).filter(Boolean).map(String) : [];
         const idSet = new Set(questionIds);
         return allQuestions.filter(q => idSet.has(q.id));
     }, [notebook, allQuestions]);
@@ -580,7 +576,9 @@ export const NotebookDetailView: React.FC<{
                 case 'default':
                 default:
                     if (notebook !== 'all') {
-                        const questionIds = Array.isArray(notebook.question_ids) ? notebook.question_ids.map(String) : [];
+                        // FIX: Added a filter for boolean values and a cast to any[] to robustly handle potentially malformed data from the database, preventing runtime errors and satisfying TypeScript's type checker.
+                        // FIX: Explicitly typed `questionIds` to `string[]` to avoid type inference issues.
+                        const questionIds: string[] = Array.isArray(notebook.question_ids) ? (notebook.question_ids as any[]).filter(Boolean).map(String) : [];
                         const orderMap = new Map(questionIds.map((id, index) => [id, index]));
                         groupToSort.sort((a, b) => {
                             const orderA = orderMap.get(String(a.id)) ?? Infinity;

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { MainContentProps } from '../../types';
 import { Source } from '../../types';
@@ -181,7 +182,7 @@ export const SourcesView: React.FC<SourcesViewProps> = ({ appData, setAppData, c
     const [sourceToDelete, setSourceToDelete] = useState<Source | null>(null);
     const [sourceToRename, setSourceToRename] = useState<Source | null>(null);
     const [newSourceName, setNewSourceName] = useState("");
-    const [sort, setSort] = useState<SortOption>('time');
+    const [sort, setSort] = useState<SortOption>('temp');
     const [commentingOn, setCommentingOn] = useState<Source | null>(null);
     const [activeVote, setActiveVote] = useState<{ sourceId: string; type: 'hot' | 'cold' } | null>(null);
     const [generatingMore, setGeneratingMore] = useState<{ sourceId: string, type: 'summaries' | 'flashcards' | 'questions' | 'mind_maps' } | null>(null);
@@ -613,7 +614,7 @@ export const SourcesView: React.FC<SourcesViewProps> = ({ appData, setAppData, c
             />
             
             <div className="flex justify-between items-center mb-6">
-                <ContentToolbar sort={sort} setSort={setSort} supportedSorts={['time', 'temp', 'subject', 'user']} />
+                <ContentToolbar sort={sort} setSort={setSort} supportedSorts={['temp', 'time', 'subject', 'user']} />
                 <button onClick={() => setIsAddSourceModalOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-primary-light text-white font-semibold rounded-md hover:bg-indigo-600">
                     <DocumentTextIcon className="w-5 h-5" /> Adicionar Fonte
                 </button>

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { MainContentProps, LinkFile, Comment, ContentType } from '../../types';
 import { Modal } from '../Modal';
@@ -90,7 +91,7 @@ export const LinksFilesView: React.FC<LinksFilesViewProps> = (props) => {
     const {
         sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly,
         processedItems,
-    } = useContentViewController(allItems, currentUser, appData, contentType, 'time');
+    } = useContentViewController(allItems, currentUser, appData, contentType, 'temp');
 
     const handleAccessContent = (item: LinkFile) => {
         const interaction = appData.userContentInteractions.find(
@@ -216,7 +217,7 @@ export const LinksFilesView: React.FC<LinksFilesViewProps> = (props) => {
                     sort={sort} setSort={setSort} 
                     filter={filter} setFilter={setFilter}
                     favoritesOnly={favoritesOnly} setFavoritesOnly={setFavoritesOnly}
-                    supportedSorts={['time', 'temp', 'user']}
+                    supportedSorts={['temp', 'time', 'user']}
                  />
                 <button onClick={() => setIsAddModalOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-primary-light text-white font-semibold rounded-md hover:bg-indigo-600">
                     <PaperClipIcon className="w-5 h-5" /> Adicionar

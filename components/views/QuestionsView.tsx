@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { MainContentProps } from '../../types';
 import { Question, Comment, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer } from '../../types';
@@ -210,7 +209,7 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ allItems, appData,
             <ContentToolbar 
                 sort={sort} 
                 setSort={setSort} 
-                supportedSorts={['time', 'temp', 'user']}
+                supportedSorts={['temp', 'time', 'user']}
             />
             
             <div className="space-y-6">
