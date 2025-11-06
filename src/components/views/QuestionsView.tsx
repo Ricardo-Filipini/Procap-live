@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { MainContentProps } from '../../types';
 import { Question, Comment, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer } from '../../types';
@@ -22,7 +21,7 @@ interface QuestionsViewProps extends MainContentProps {
 export const QuestionsView: React.FC<QuestionsViewProps> = ({ allItems, appData, setAppData, currentUser, updateUser, navTarget, clearNavTarget, setScreenContext }) => {
     const [selectedNotebook, setSelectedNotebook] = useState<QuestionNotebook | 'all' | null>(null);
     const [commentingOnNotebook, setCommentingOnNotebook] = useState<QuestionNotebook | null>(null);
-    const [sort, setSort] = useState<SortOption>('time');
+    const [sort, setSort] = useState<SortOption>('temp');
     const [questionIdToFocus, setQuestionIdToFocus] = useState<string | null>(null);
     
     useEffect(() => {
@@ -51,31 +50,32 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ allItems, appData,
     }, [navTarget, clearNavTarget, appData.questionNotebooks]);
 
     useEffect(() => {
-        const fetchAllUserAnswers = async () => {
-            if (!supabase) return;
+        const fetchCurrentUserAnswers = async () => {
+            if (!supabase || !currentUser?.id) return;
 
             const { data, error } = await supabase
                 .from('user_question_answers')
-                .select('*');
+                .select('*')
+                .eq('user_id', currentUser.id);
 
             if (error) {
-                console.error("Failed to fetch all user answers:", error);
+                console.error("Failed to fetch current user's answers:", error);
             } else if (data) {
                 setAppData(prev => {
-                    const answerMap = new Map(prev.userQuestionAnswers.map(a => [a.id, a]));
-                    data.forEach(freshAnswer => {
-                        answerMap.set(freshAnswer.id, freshAnswer);
-                    });
+                    // Filter out stale answers for the current user and merge fresh data
+                    const otherUsersAnswers = prev.userQuestionAnswers.filter(
+                        a => a.user_id !== currentUser.id
+                    );
                     return {
                         ...prev,
-                        userQuestionAnswers: Array.from(answerMap.values())
+                        userQuestionAnswers: [...otherUsersAnswers, ...data],
                     };
                 });
             }
         };
 
-        fetchAllUserAnswers();
-    }, [setAppData]);
+        fetchCurrentUserAnswers();
+    }, [currentUser.id, setAppData]);
 
     const handleNotebookInteractionUpdate = async (notebookId: string, update: Partial<UserNotebookInteraction>) => {
         let newInteractions = [...appData.userNotebookInteractions];
@@ -210,7 +210,7 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ allItems, appData,
             <ContentToolbar 
                 sort={sort} 
                 setSort={setSort} 
-                supportedSorts={['time', 'temp', 'user']}
+                supportedSorts={['temp', 'time', 'user']}
             />
             
             <div className="space-y-6">
