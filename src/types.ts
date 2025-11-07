@@ -135,6 +135,8 @@ export interface LinkFile {
     url?: string;
     file_path?: string;
     file_name?: string;
+// FIX: Added 'is_anki_deck' to support new study functionality.
+    is_anki_deck?: boolean;
     created_at: string;
     hot_votes: number;
     cold_votes: number;

@@ -135,6 +135,7 @@ export interface LinkFile {
     url?: string;
     file_path?: string;
     file_name?: string;
+    is_anki_deck?: boolean;
     created_at: string;
     hot_votes: number;
     cold_votes: number;

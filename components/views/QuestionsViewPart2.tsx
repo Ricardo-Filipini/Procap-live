@@ -1,3 +1,5 @@
+
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { MainContentProps } from '../../types';
 import { Question, Comment, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer } from '../../types';
@@ -23,6 +25,7 @@ const CreateNotebookModal: React.FC<{
     const [prompt, setPrompt] = useState("");
     const [selectedSourceIds, setSelectedSourceIds] = useState<Set<string>>(new Set());
     const [excludeAnswered, setExcludeAnswered] = useState(false);
+    const [keepWrongAndFavorites, setKeepWrongAndFavorites] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [statusMessage, setStatusMessage] = useState("");
 
@@ -43,13 +46,31 @@ const CreateNotebookModal: React.FC<{
             
             const sourcesToUse = selectedSourceIds.size > 0
                 ? allAvailableSources.filter(s => selectedSourceIds.has(s.id))
-                : allAvailableSources;
+                : allAvailableSources.filter(s => s.title.includes('(Apostila)'));
             
             let questionsPool = sourcesToUse.flatMap(s => s.questions);
 
             if (excludeAnswered) {
                 const answeredQuestionIds = new Set(appData.userQuestionAnswers.filter(a => a.user_id === currentUser.id).map(a => a.question_id));
-                questionsPool = questionsPool.filter(q => !answeredQuestionIds.has(q.id));
+                if (keepWrongAndFavorites) {
+                    const answeredIncorrectlyIds = new Set(
+                        appData.userQuestionAnswers
+                            .filter(a => a.user_id === currentUser.id && !a.is_correct_first_try)
+                            .map(a => a.question_id)
+                    );
+                    const favoritedQuestionIds = new Set(
+                        appData.userContentInteractions
+                            .filter(i => i.user_id === currentUser.id && i.content_type === 'question' && i.is_favorite)
+                            .map(i => i.content_id)
+                    );
+                    questionsPool = questionsPool.filter(q => 
+                        !answeredQuestionIds.has(q.id) || 
+                        answeredIncorrectlyIds.has(q.id) || 
+                        favoritedQuestionIds.has(q.id)
+                    );
+                } else {
+                    questionsPool = questionsPool.filter(q => !answeredQuestionIds.has(q.id));
+                }
             }
 
             if (questionsPool.length === 0) {
@@ -102,6 +123,7 @@ const CreateNotebookModal: React.FC<{
             setPrompt("");
             setSelectedSourceIds(new Set());
             setExcludeAnswered(false);
+            setKeepWrongAndFavorites(false);
             setIsLoading(false);
             setStatusMessage("");
         }
@@ -126,7 +148,7 @@ const CreateNotebookModal: React.FC<{
                         className="w-full h-20 p-2 bg-background-light dark:bg-background-dark border border-border-light dark:border-border-dark rounded-md" />
                 </div>
                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Fontes (opcional, todas por padrão)</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Fontes (opcional, padrão: Apostilas)</label>
                     <div className="max-h-40 overflow-y-auto border border-border-light dark:border-border-dark rounded-md p-2 space-y-1">
                        {appData.sources.filter(s => s.questions && s.questions.length > 0).map(source => (
                             <div key={source.id} className="flex items-center gap-2 p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700">
@@ -145,10 +167,17 @@ const CreateNotebookModal: React.FC<{
                         className="h-4 w-4 rounded border-gray-300 text-primary-light focus:ring-primary-light" />
                     <label htmlFor="exclude-answered" className="text-sm cursor-pointer">Não incluir questões já respondidas</label>
                 </div>
+                 {excludeAnswered && (
+                    <div className="flex items-center gap-2 pl-6">
+                        <input type="checkbox" id="keep-wrong-favorites" checked={keepWrongAndFavorites} onChange={e => setKeepWrongAndFavorites(e.target.checked)} 
+                            className="h-4 w-4 rounded border-gray-300 text-primary-light focus:ring-primary-light" />
+                        <label htmlFor="keep-wrong-favorites" className="text-sm cursor-pointer">Manter erradas e favoritas</label>
+                    </div>
+                )}
                 <button onClick={handleCreate} disabled={isLoading} className="mt-4 w-full bg-primary-light text-white font-bold py-2 px-4 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center h-10">
                     {isLoading ? (
                          <div className="flex items-center">
-                            <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                             <span>{statusMessage}</span>
                         </div>
                     ) : 'Criar Caderno'}
@@ -542,7 +571,7 @@ export const NotebookDetailView: React.FC<{
         // FIX: In `questionsInNotebook` useMemo, used `Array.isArray` to safely handle `notebook.question_ids` and prevent potential runtime errors, improving type safety.
         // FIX: Use a type guard to safely filter notebook.question_ids, ensuring it's a clean array of strings.
         // FIX: Explicitly type 'id' as 'unknown' to satisfy stricter type checking for the type guard.
-        const questionIds: string[] = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id): id is string => typeof id === 'string') : [];
+        const questionIds: string[] = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id: unknown): id is string => typeof id === 'string') : [];
         const idSet = new Set(questionIds);
         return allQuestions.filter(q => idSet.has(q.id));
     }, [notebook, allQuestions]);
@@ -599,7 +628,8 @@ export const NotebookDetailView: React.FC<{
                 case 'default':
                 default:
                     if (notebook !== 'all') {
-                        // FIX: Explicitly type 'id' as 'unknown' to satisfy stricter type checking for the type guard.
+                        // FIX: Removed incorrect ':unknown' type. The type of 'id' is correctly inferred from the array, and the type guard ensures safety.
+                        // FIX: Removed explicit 'unknown' type from filter parameter 'id' to let TypeScript infer it, resolving a type error. The type guard `id is string` remains for safety.
                         const questionIds: string[] = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id): id is string => typeof id === 'string') : [];
                         const orderMap = new Map(questionIds.map((id, index) => [id, index]));
                         groupToSort.sort((a: Question, b: Question) => {

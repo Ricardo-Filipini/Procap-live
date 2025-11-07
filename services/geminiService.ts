@@ -6,7 +6,8 @@ import { getFinalApiKey } from '../constants';
 // It prioritizes the user-provided key, then environment variables.
 // It NO LONGER uses hardcoded fallback keys.
 const getAiClient = (apiKey?: string): GoogleGenAI | null => {
-    const finalApiKey = getFinalApiKey(apiKey);
+    // FIX: The `getFinalApiKey` function does not accept arguments, as per guidelines to exclusively use environment variables.
+    const finalApiKey = getFinalApiKey();
     if (!finalApiKey) {
         console.warn("Chave de API do Gemini não encontrada. Por favor, configure uma nas Configurações do Agente IA ou como uma variável de ambiente.");
         return null;

@@ -3,7 +3,7 @@ import { AppData, User, Source, ChatMessage, UserMessageVote, UserSourceVote, Su
 
 /*
 -- =================================================================
--- 🚨 PROCAP - G200: SCRIPT DE CONFIGURAÇÃO DO BANCO DE DADOS (v5.8) 🚨
+-- 🚨 PROCAP - G200: SCRIPT DE CONFIGURAÇÃO DO BANCO DE DADOS (v5.9) 🚨
 -- =================================================================
 --
 -- INSTRUÇÕES:
@@ -19,10 +19,9 @@ import { AppData, User, Source, ChatMessage, UserMessageVote, UserSourceVote, Su
 --     - COPIE E COLE **TODO O CONTEÚDO** DESTE BLOCO SQL ABAIXO.
 --     - Clique em "RUN".
 --
--- O QUE HÁ DE NOVO (v5.8):
---   - STORAGE POLICY FIX: Adicionada uma política de segurança para o bucket `files`,
---     que é usado pela funcionalidade de "Links/Arquivos". A ausência desta
---     política poderia impedir o upload e download de arquivos nessa seção.
+-- O QUE HÁ DE NOVO (v5.9):
+--   - ANKI DECK SUPPORT: Adicionada a coluna `is_anki_deck` na tabela `links_files`
+--     para suportar a nova funcionalidade de estudo de flashcards.
 -- =================================================================
 
 -- Parte 1: Correção e Padronização das Políticas de Segurança (RLS)
@@ -81,6 +80,7 @@ CREATE TABLE IF NOT EXISTS public.links_files (
     url TEXT,
     file_path TEXT,
     file_name TEXT,
+    is_anki_deck BOOLEAN DEFAULT false,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     hot_votes INT NOT NULL DEFAULT 0,
     cold_votes INT NOT NULL DEFAULT 0,
