@@ -177,7 +177,7 @@ const CreateNotebookModal: React.FC<{
                 <button onClick={handleCreate} disabled={isLoading} className="mt-4 w-full bg-primary-light text-white font-bold py-2 px-4 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center h-10">
                     {isLoading ? (
                          <div className="flex items-center">
-                            <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                             <span>{statusMessage}</span>
                         </div>
                     ) : 'Criar Caderno'}
@@ -286,7 +286,8 @@ const NotebookStatsModal: React.FC<{
         // FIX: In `questionsInNotebook` useMemo, used `Array.isArray` to safely handle `notebook.question_ids` and prevent potential runtime errors, improving type safety.
         // FIX: Use a type guard to safely filter notebook.question_ids, ensuring it's a clean array of strings.
         // FIX: Explicitly type 'id' as 'unknown' to satisfy stricter type checking for the type guard.
-        const ids = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id): id is string => typeof id === 'string') : [];
+        // FIX: Explicitly typing 'id' as 'any' to resolve TS error. The type guard ensures safety.
+        const ids = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id: any): id is string => typeof id === 'string') : [];
         return new Set(ids);
     }, [notebook, appData.sources]);
 
@@ -571,7 +572,9 @@ export const NotebookDetailView: React.FC<{
         // FIX: In `questionsInNotebook` useMemo, used `Array.isArray` to safely handle `notebook.question_ids` and prevent potential runtime errors, improving type safety.
         // FIX: Use a type guard to safely filter notebook.question_ids, ensuring it's a clean array of strings.
         // FIX: Explicitly type 'id' as 'unknown' to satisfy stricter type checking for the type guard.
-        const questionIds: string[] = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id: unknown): id is string => typeof id === 'string') : [];
+        // FIX: Removed explicit 'unknown' type from filter parameter 'id' to let TypeScript infer it, resolving a type error. The type guard `id is string` remains for safety.
+        // FIX: Explicitly typing 'id' as 'any' to resolve TS error. The type guard ensures safety.
+        const questionIds: string[] = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id: any): id is string => typeof id === 'string') : [];
         const idSet = new Set(questionIds);
         return allQuestions.filter(q => idSet.has(q.id));
     }, [notebook, allQuestions]);
@@ -583,6 +586,7 @@ export const NotebookDetailView: React.FC<{
     }, [questionsInNotebook, shuffleTrigger]);
 
     const prevQuestionSortOrder = useRef(questionSortOrder);
+    const currentQuestion = sortedQuestions[currentQuestionIndex];
 
     useEffect(() => {
         const enablingWrongOnly = !prevShowWrongOnlyRef.current && showWrongOnly;
@@ -595,6 +599,7 @@ export const NotebookDetailView: React.FC<{
         prevQuestionSortOrder.current = questionSortOrder;
 
         let questionsToProcess = [...questionsInNotebook];
+        const currentQuestionId = currentQuestion?.id;
 
         if (showWrongOnly) {
             const answeredIncorrectlyIds = new Set(
@@ -603,14 +608,18 @@ export const NotebookDetailView: React.FC<{
                     .filter(ans => !ans.is_correct_first_try)
                     .map(ans => ans.question_id)
             );
-            questionsToProcess = questionsToProcess.filter(q => answeredIncorrectlyIds.has(q.id));
+            questionsToProcess = questionsToProcess.filter(q => 
+                answeredIncorrectlyIds.has(q.id) || q.id === currentQuestionId
+            );
         } else if (notebook === 'all' && showUnansweredInAnyNotebook) {
             const answeredInAnyNotebookIds = new Set(
                 appData.userQuestionAnswers
                     .filter(ans => ans.user_id === currentUser.id)
                     .map(ans => ans.question_id)
             );
-            questionsToProcess = questionsToProcess.filter(q => !answeredInAnyNotebookIds.has(q.id));
+            questionsToProcess = questionsToProcess.filter(q => 
+                !answeredInAnyNotebookIds.has(q.id) || q.id === currentQuestionId
+            );
         }
 
         const sortGroup = (group: (Question & { user_id: string, created_at: string})[]) => {
@@ -630,7 +639,8 @@ export const NotebookDetailView: React.FC<{
                     if (notebook !== 'all') {
                         // FIX: Removed incorrect ':unknown' type. The type of 'id' is correctly inferred from the array, and the type guard ensures safety.
                         // FIX: Removed explicit 'unknown' type from filter parameter 'id' to let TypeScript infer it, resolving a type error. The type guard `id is string` remains for safety.
-                        const questionIds: string[] = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id): id is string => typeof id === 'string') : [];
+                        // FIX: Explicitly typing 'id' as 'any' to resolve TS error. The type guard ensures safety.
+                        const questionIds: string[] = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id: any): id is string => typeof id === 'string') : [];
                         const orderMap = new Map(questionIds.map((id, index) => [id, index]));
                         groupToSort.sort((a: Question, b: Question) => {
                             const orderA = orderMap.get(a.id) ?? Infinity;
@@ -697,7 +707,7 @@ export const NotebookDetailView: React.FC<{
         }
     }, [questionIdToFocus, sortedQuestions]);
 
-    const currentQuestion = sortedQuestions[currentQuestionIndex];
+    
 
     // Save the current question ID to local storage whenever it changes.
     useEffect(() => {

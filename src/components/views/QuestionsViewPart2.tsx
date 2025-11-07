@@ -284,7 +284,8 @@ const NotebookStatsModal: React.FC<{
         // FIX: In `questionsInNotebook` useMemo, used `Array.isArray` to safely handle `notebook.question_ids` and prevent potential runtime errors, improving type safety.
         // FIX: Use a type guard to safely filter notebook.question_ids, ensuring it's a clean array of strings.
         // FIX: Explicitly type 'id' as 'unknown' to satisfy stricter type checking for the type guard.
-        const ids = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id): id is string => typeof id === 'string') : [];
+        // FIX: Explicitly typing 'id' as 'any' to resolve TS error. The type guard ensures safety.
+        const ids = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id: any): id is string => typeof id === 'string') : [];
         return new Set(ids);
     }, [notebook, appData.sources]);
 
@@ -570,7 +571,8 @@ export const NotebookDetailView: React.FC<{
         // FIX: Use a type guard to safely filter notebook.question_ids, ensuring it's a clean array of strings.
         // FIX: Explicitly type 'id' as 'unknown' to satisfy stricter type checking for the type guard.
         // FIX: Removed explicit 'unknown' type from filter parameter 'id' to let TypeScript infer it, resolving a type error. The type guard `id is string` remains for safety.
-        const questionIds: string[] = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id): id is string => typeof id === 'string') : [];
+        // FIX: Explicitly typing 'id' as 'any' to resolve TS error. The type guard ensures safety.
+        const questionIds: string[] = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id: any): id is string => typeof id === 'string') : [];
         const idSet = new Set(questionIds);
         return allQuestions.filter(q => idSet.has(q.id));
     }, [notebook, allQuestions]);
@@ -629,7 +631,8 @@ export const NotebookDetailView: React.FC<{
                     if (notebook !== 'all') {
                         // FIX: Removed incorrect ':unknown' type. The type of 'id' is correctly inferred from the array, and the type guard ensures safety.
                         // FIX: Removed explicit 'unknown' type from filter parameter 'id' to let TypeScript infer it, resolving a type error. The type guard `id is string` remains for safety.
-                        const questionIds: string[] = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id): id is string => typeof id === 'string') : [];
+                        // FIX: Explicitly typing 'id' as 'any' to resolve TS error. The type guard ensures safety.
+                        const questionIds: string[] = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id: any): id is string => typeof id === 'string') : [];
                         const orderMap = new Map(questionIds.map((id, index) => [id, index]));
                         groupToSort.sort((a: Question, b: Question) => {
                             const orderA = orderMap.get(a.id) ?? Infinity;
