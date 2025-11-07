@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { MainContentProps } from '../../types';
 import { Question, Comment, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer } from '../../types';
@@ -23,9 +24,29 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ allItems, appData,
     const [commentingOnNotebook, setCommentingOnNotebook] = useState<QuestionNotebook | null>(null);
     const [sort, setSort] = useState<SortOption>('temp');
     const [questionIdToFocus, setQuestionIdToFocus] = useState<string | null>(null);
+    const [restoredFromStorage, setRestoredFromStorage] = useState(false);
     
+    // Restore from localStorage on initial mount
     useEffect(() => {
-        // Fix: Use navTarget prop for navigation logic.
+        if (appData.questionNotebooks.length > 0 && !restoredFromStorage && !navTarget) {
+            const savedNotebookId = localStorage.getItem('procap_lastNotebookId');
+            if (savedNotebookId) {
+                const notebook = savedNotebookId === 'all' ? 'all' : appData.questionNotebooks.find(n => n.id === savedNotebookId);
+                if (notebook) {
+                    setSelectedNotebook(notebook);
+                    setQuestionIdToFocus(localStorage.getItem('procap_lastQuestionId'));
+                } else {
+                    // Clean up invalid data from storage
+                    localStorage.removeItem('procap_lastNotebookId');
+                    localStorage.removeItem('procap_lastQuestionId');
+                }
+            }
+            setRestoredFromStorage(true); // Ensure this runs only once
+        }
+    }, [appData.questionNotebooks, restoredFromStorage, navTarget]);
+
+    // Handle explicit navigation from other views
+    useEffect(() => {
         if (navTarget?.id) {
             const notebook = appData.questionNotebooks.find(n => n.id === navTarget.id);
             if (notebook) {
@@ -36,9 +57,7 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ allItems, appData,
             }
             clearNavTarget();
         } else if (navTarget?.term) {
-            // Handle navigation by term (e.g., from community chat)
-            // FIX: Ensure navTarget.term exists before using it to prevent runtime errors.
-            const notebook = appData.questionNotebooks.find(n => n.name.toLowerCase() === navTarget.term.toLowerCase());
+            const notebook = appData.questionNotebooks.find(n => n.name.toLowerCase() === navTarget.term!.toLowerCase());
             if (notebook) {
                 setSelectedNotebook(notebook);
                 setQuestionIdToFocus(navTarget.subId || null);
@@ -48,6 +67,18 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ allItems, appData,
             clearNavTarget();
         }
     }, [navTarget, clearNavTarget, appData.questionNotebooks]);
+
+    // Save current notebook to localStorage
+    useEffect(() => {
+        if (selectedNotebook) {
+            const idToSave = selectedNotebook === 'all' ? 'all' : selectedNotebook.id;
+            localStorage.setItem('procap_lastNotebookId', idToSave);
+        } else {
+            localStorage.removeItem('procap_lastNotebookId');
+            localStorage.removeItem('procap_lastQuestionId');
+        }
+    }, [selectedNotebook]);
+
 
     useEffect(() => {
         const fetchCurrentUserAnswers = async () => {
@@ -113,7 +144,8 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ allItems, appData,
                 const author = appData.users.find(u => u.id === authorId);
                 if (author) {
                     const xpChange = (type === 'hot' ? 1 : -1) * increment;
-                    const updatedAuthor = { ...author, xp: author.xp + xpChange };
+                    // FIX: Defensively cast `author.xp` to a number before performing addition to prevent runtime errors with potentially malformed data.
+                    const updatedAuthor = { ...author, xp: (Number(author.xp) || 0) + xpChange };
                     const result = await supabaseUpdateUser(updatedAuthor);
                     if (result) {
                         setAppData(prev => ({...prev, users: prev.users.map(u => u.id === result.id ? result : u)}));

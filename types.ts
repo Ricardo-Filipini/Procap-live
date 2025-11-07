@@ -321,7 +321,7 @@ export interface ProcessingTask {
 }
 
 export interface AgentSettings {
-  apiKey: string;
+  // apiKey: string;
   voice: 'Fenrir' | 'Kore'; // Male | Female
   speed: number; // e.g. 0.75, 1.0, 1.25
   systemPrompt: string;

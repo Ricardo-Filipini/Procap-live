@@ -3,7 +3,7 @@ import { MainContentProps } from '../../types';
 import { Question, Comment, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer } from '../../types';
 import { CommentsModal } from '../shared/CommentsModal';
 import { Modal } from '../Modal';
-import { PlusIcon, LightBulbIcon, ChartBarSquareIcon, MagnifyingGlassIcon, TrashIcon, XCircleIcon } from '../Icons';
+import { PlusIcon, LightBulbIcon, ChartBarSquareIcon, MagnifyingGlassIcon, TrashIcon, XCircleIcon, SparklesIcon } from '../Icons';
 import { ContentActions } from '../shared/ContentActions';
 import { FontSizeControl, FONT_SIZE_CLASSES } from '../shared/FontSizeControl';
 import { checkAndAwardAchievements } from '../../lib/achievements';
@@ -254,10 +254,10 @@ const NotebookStatsModal: React.FC<{
         if (notebook === 'all') {
             return new Set(appData.sources.flatMap(s => s.questions.map(q => q.id)));
         }
-        // FIX: Ensure `question_ids` is an array of strings before creating a Set to prevent type errors.
+        // FIX: In `questionsInNotebook` useMemo, used `Array.isArray` to safely handle `notebook.question_ids` and prevent potential runtime errors, improving type safety.
         // FIX: Use a type guard to safely filter notebook.question_ids, ensuring it's a clean array of strings.
         // FIX: Explicitly type 'id' as 'unknown' to satisfy stricter type checking for the type guard.
-        const ids = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id: unknown): id is string => typeof id === 'string') : [];
+        const ids = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id): id is string => typeof id === 'string') : [];
         return new Set(ids);
     }, [notebook, appData.sources]);
 
@@ -272,7 +272,7 @@ const NotebookStatsModal: React.FC<{
 
         // Correctly filter for the specific notebook context, whether it's 'all_questions' or a UUID.
         appData.userQuestionAnswers
-            .filter(ans => ans.notebook_id === notebookId)
+            .filter(ans => String(ans.notebook_id) === notebookId)
             .forEach(ans => {
                 if (!userScores[ans.user_id]) {
                     userScores[ans.user_id] = { correct: 0 };
@@ -534,13 +534,15 @@ export const NotebookDetailView: React.FC<{
     const [prioritizeApostilas, setPrioritizeApostilas] = useState(notebook === 'all');
     const [showWrongOnly, setShowWrongOnly] = useState(false);
     const prevShowWrongOnlyRef = useRef(showWrongOnly);
-    
+    const [showUnansweredInAnyNotebook, setShowUnansweredInAnyNotebook] = useState(false);
+    const prevShowUnansweredRef = useRef(showUnansweredInAnyNotebook);
+
     const questionsInNotebook = useMemo(() => {
         if (notebook === 'all') return allQuestions;
         // FIX: In `questionsInNotebook` useMemo, used `Array.isArray` to safely handle `notebook.question_ids` and prevent potential runtime errors, improving type safety.
         // FIX: Use a type guard to safely filter notebook.question_ids, ensuring it's a clean array of strings.
         // FIX: Explicitly type 'id' as 'unknown' to satisfy stricter type checking for the type guard.
-        const questionIds: string[] = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id: unknown): id is string => typeof id === 'string') : [];
+        const questionIds: string[] = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id): id is string => typeof id === 'string') : [];
         const idSet = new Set(questionIds);
         return allQuestions.filter(q => idSet.has(q.id));
     }, [notebook, allQuestions]);
@@ -557,6 +559,9 @@ export const NotebookDetailView: React.FC<{
         const enablingWrongOnly = !prevShowWrongOnlyRef.current && showWrongOnly;
         prevShowWrongOnlyRef.current = showWrongOnly;
 
+        const enablingUnanswered = !prevShowUnansweredRef.current && showUnansweredInAnyNotebook;
+        prevShowUnansweredRef.current = showUnansweredInAnyNotebook;
+
         const sortChanged = prevQuestionSortOrder.current !== questionSortOrder;
         prevQuestionSortOrder.current = questionSortOrder;
 
@@ -570,6 +575,13 @@ export const NotebookDetailView: React.FC<{
                     .map(ans => ans.question_id)
             );
             questionsToProcess = questionsToProcess.filter(q => answeredIncorrectlyIds.has(q.id));
+        } else if (notebook === 'all' && showUnansweredInAnyNotebook) {
+            const answeredInAnyNotebookIds = new Set(
+                appData.userQuestionAnswers
+                    .filter(ans => ans.user_id === currentUser.id)
+                    .map(ans => ans.question_id)
+            );
+            questionsToProcess = questionsToProcess.filter(q => !answeredInAnyNotebookIds.has(q.id));
         }
 
         const sortGroup = (group: (Question & { user_id: string, created_at: string})[]) => {
@@ -588,7 +600,7 @@ export const NotebookDetailView: React.FC<{
                 default:
                     if (notebook !== 'all') {
                         // FIX: Explicitly type 'id' as 'unknown' to satisfy stricter type checking for the type guard.
-                        const questionIds: string[] = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id: unknown): id is string => typeof id === 'string') : [];
+                        const questionIds: string[] = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id): id is string => typeof id === 'string') : [];
                         const orderMap = new Map(questionIds.map((id, index) => [id, index]));
                         groupToSort.sort((a: Question, b: Question) => {
                             const orderA = orderMap.get(a.id) ?? Infinity;
@@ -619,7 +631,7 @@ export const NotebookDetailView: React.FC<{
         const previousQuestionId = currentQuestion?.id;
         setSortedQuestions(finalSortedQuestions);
         
-        if (enablingWrongOnly) {
+        if (enablingWrongOnly || enablingUnanswered) {
             setCurrentQuestionIndex(0);
         } else if (sortChanged) {
             const boundedIndex = Math.min(currentQuestionIndex, Math.max(0, finalSortedQuestions.length - 1));
@@ -642,7 +654,7 @@ export const NotebookDetailView: React.FC<{
             }
         }
 
-    }, [questionsInNotebook, questionSortOrder, prioritizeApostilas, notebook, stableRandomSort, showWrongOnly, appData.userQuestionAnswers, currentUser.id, notebookId]);
+    }, [questionsInNotebook, questionSortOrder, prioritizeApostilas, notebook, stableRandomSort, showWrongOnly, appData.userQuestionAnswers, currentUser.id, notebookId, showUnansweredInAnyNotebook]);
 
 
     // Effect to handle navigation to a specific question
@@ -889,9 +901,27 @@ export const NotebookDetailView: React.FC<{
                 </div>
                  <div className="flex items-center gap-2">
                     <span className="font-semibold">Filtrar:</span>
-                    <button title="Mostrar apenas questões erradas" onClick={() => setShowWrongOnly(prev => !prev)} className={`p-2 rounded-full transition ${showWrongOnly ? 'bg-red-500/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>
+                    <button title="Mostrar apenas questões erradas" onClick={() => {
+                        const isTurningOn = !showWrongOnly;
+                        setShowWrongOnly(isTurningOn);
+                        if (isTurningOn) {
+                            setShowUnansweredInAnyNotebook(false);
+                        }
+                    }} className={`p-2 rounded-full transition ${showWrongOnly ? 'bg-red-500/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>
                         <XCircleIcon className={`w-5 h-5 ${showWrongOnly ? 'text-red-500' : 'text-gray-500'}`} />
                     </button>
+                    {notebook === 'all' && (
+                        <button title="Mostrar apenas questões inéditas (não respondidas em nenhum caderno)" onClick={() => {
+                            const isTurningOn = !showUnansweredInAnyNotebook;
+                            setShowUnansweredInAnyNotebook(isTurningOn);
+                            if (isTurningOn) {
+                                setShowWrongOnly(false);
+                            }
+                        }} className={`flex items-center gap-1 px-3 py-1 rounded-md text-sm font-semibold transition ${showUnansweredInAnyNotebook ? 'bg-blue-500/20 text-blue-500' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>
+                            <SparklesIcon className="w-4 h-4" />
+                            Inéditas
+                        </button>
+                    )}
                 </div>
                 {notebook === 'all' && (
                     <div className="flex items-center gap-2">
@@ -986,7 +1016,7 @@ export const NotebookDetailView: React.FC<{
                 </div>
 
                 {isCompleted ? (
-                    <button onClick={() => navigateQuestion(1)} className="px-6 py-2 bg-primary-light text-white font-bold rounded-md hover:bg-indigo-700 disabled:opacity-50" disabled={currentQuestionIndex === sortedQuestions.length - 1}>
+                    <button onClick={handleNextUnanswered} className="px-6 py-2 bg-primary-light text-white font-bold rounded-md hover:bg-indigo-700">
                         Próxima Questão
                     </button>
                 ) : (

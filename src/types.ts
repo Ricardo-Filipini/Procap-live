@@ -321,7 +321,7 @@ export interface ProcessingTask {
 }
 
 export interface AgentSettings {
-  apiKey: string;
+  // apiKey: string;
   voice: 'Fenrir' | 'Kore'; // Male | Female
   speed: number; // e.g. 0.75, 1.0, 1.25
   systemPrompt: string;
@@ -342,6 +342,7 @@ export interface MainContentProps {
   onToggleAgentSettings?: () => void;
   isLiveAgentActive?: boolean;
   liveAgentStatus?: LiveAgentStatus;
+  agentSettings?: AgentSettings;
   // FIX: Made the 'term' property optional to match its usage in the application, resolving a type mismatch.
   navTarget?: {viewName: string, term?: string, id?: string, subId?: string} | null;
   setNavTarget?: (target: {viewName: string, term?: string, id?: string, subId?: string} | null) => void;

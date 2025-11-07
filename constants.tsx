@@ -89,7 +89,6 @@ export const INITIAL_APP_DATA: AppData = {
 };
 
 export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
-    apiKey: '',
     voice: 'Fenrir', // Male
     speed: 1, // Normal
     systemPrompt: ''
@@ -164,27 +163,14 @@ export const ACHIEVEMENTS = {
   ]
 };
 
-export const FALLBACK_API_KEYS = [
-    'AIzaSyCvsigzPyzoBuM7WOFeRqe9hZX-0yQ-WjU',
-    'AIzaSyC0994KXf-7tPBBHT-Ty22mxxOKOSCBIlY',
-    'AIzaSyB5YZwv9GcabHXBtgI6wE8jGHt3kQ9ty2A',
-    'AIzaSyBBijuz1gLGpckEjuzhDnDBM61U09zvfyY',
-];
-
 /**
- * Retrieves the final API key based on a priority order:
- * 1. User-provided key (from settings).
- * 2. VITE_API_KEY environment variable.
- * 3. API_KEY environment variable.
- * 4. A random key from the fallback list.
- * Returns undefined if no key is found.
+ * Retrieves the API key from the environment.
+ * Per guidelines, it must come exclusively from process.env.API_KEY.
  */
-export const getFinalApiKey = (userApiKey?: string): string | undefined => {
-    const userKey = userApiKey?.trim();
-    if (userKey) {
-        return userKey;
-    }
-
+export const getFinalApiKey = (): string | undefined => {
+    // The guidelines specify to use process.env.API_KEY exclusively.
+    // It's assumed to be available in the execution environment.
+    // Vite exposes env vars via import.meta.env, which might be polyfilled to process.env.
     const viteEnvKey = (import.meta as any).env?.VITE_API_KEY;
     if (viteEnvKey) {
         return viteEnvKey;
@@ -193,10 +179,6 @@ export const getFinalApiKey = (userApiKey?: string): string | undefined => {
     const envKey = process.env.API_KEY;
     if (envKey) {
         return envKey;
-    }
-    
-    if (FALLBACK_API_KEYS && FALLBACK_API_KEYS.length > 0) {
-        return FALLBACK_API_KEYS[Math.floor(Math.random() * FALLBACK_API_KEYS.length)];
     }
 
     return undefined;

@@ -79,7 +79,8 @@ export const LiveAgent: React.FC<LiveAgentProps> = ({ appData, currentUser, setA
         cleanup();
         setLiveAgentStatus('connecting');
 
-        const apiKey = getFinalApiKey(agentSettings.apiKey);
+        // FIX: API key is now sourced exclusively from the environment per guidelines.
+        const apiKey = getFinalApiKey();
         if (!apiKey) {
             console.error("No API Key available for Live Agent.");
             setLiveAgentStatus('error');

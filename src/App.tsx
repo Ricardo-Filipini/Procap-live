@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { MainContent } from './components/MainContent';
@@ -252,6 +253,7 @@ const App: React.FC = () => {
           isLiveAgentActive={isLiveAgentActive}
           liveAgentStatus={liveAgentStatus}
           onToggleAgentSettings={() => setIsAgentSettingsOpen(true)}
+          agentSettings={agentSettings}
           navTarget={navTarget}
           setNavTarget={setNavTarget}
           screenContext={screenContext}
