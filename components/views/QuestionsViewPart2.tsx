@@ -776,7 +776,6 @@ export const NotebookDetailView: React.FC<{
 
         const wasAnsweredBefore = userAnswers.has(currentQuestion.id);
         if ((isCorrect || newWrongAnswers.size >= 3) && !wasAnsweredBefore) {
-            // FIX: Use spread operator directly on the Set, which is more idiomatic and avoids potential type inference issues with Array.from.
             const attempts: string[] = [...newWrongAnswers, option];
             const isCorrectFirstTry = attempts.length === 1 && isCorrect;
             const xpMap = [10, 5, 2, 0];
@@ -815,7 +814,6 @@ export const NotebookDetailView: React.FC<{
             newStats.topicPerformance[topic].total += 1;
             if (isCorrectFirstTry) newStats.topicPerformance[topic].correct += 1;
             
-            // FIX: Defensively cast `currentUser.xp` to a number before performing addition to prevent runtime errors with potentially malformed data.
             const userWithNewStats = { ...currentUser, stats: newStats, xp: (Number(currentUser.xp) || 0) + xpGained };
             const finalUser = checkAndAwardAchievements(userWithNewStats, appData);
             updateUser(finalUser);
@@ -972,10 +970,14 @@ export const NotebookDetailView: React.FC<{
 
             <div className={`space-y-3 ${FONT_SIZE_CLASSES[fontSize]}`}>
                 {/* FIX: Explicitly type `option` as a string to resolve TS error due to upstream type pollution. */}
-                {(currentQuestion?.options || []).map((option: string, index: number) => {
-                    const isSelected = selectedOption === option;
-                    const isWrong = wrongAnswers.has(option);
-                    const isCorrect = option === currentQuestion.correctAnswer;
+                {/* FIX: Defensively handle `option` as `unknown` and cast to string to prevent runtime errors from malformed data. */}
+                {/* FIX: Type 'unknown' is not assignable to type 'string'. Coercing 'option' to a string to handle potential type pollution from the data source. */}
+                {/* FIX: Explicitly typing 'option' as 'any' to handle type pollution from the data source where 'options' may not be a clean string array. */}
+                {(currentQuestion?.options || []).map((option: any, index: number) => {
+                    const optionAsString = String(option);
+                    const isSelected = selectedOption === optionAsString;
+                    const isWrong = wrongAnswers.has(optionAsString);
+                    const isCorrect = optionAsString === currentQuestion.correctAnswer;
 
                     let optionClass = "bg-background-light dark:bg-background-dark border-border-light dark:border-border-dark hover:border-primary-light dark:hover:border-primary-dark";
                     let cursorClass = "cursor-pointer";
@@ -998,9 +1000,9 @@ export const NotebookDetailView: React.FC<{
                     }
 
                     return (
-                        <div key={index} onClick={() => handleSelectOption(option)}
+                        <div key={index} onClick={() => handleSelectOption(optionAsString)}
                              className={`p-4 border rounded-lg transition-colors ${optionClass} ${cursorClass}`}>
-                             <span>{option}</span>
+                             <span>{optionAsString}</span>
                         </div>
                     );
                 })}

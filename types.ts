@@ -291,6 +291,12 @@ export interface XpEvent {
     created_at: string;
 }
 
+export interface UserMood {
+    user_id: string;
+    mood: string;
+    updated_at: string;
+}
+
 export interface AppData {
   users: User[];
   sources: Source[];
@@ -307,6 +313,7 @@ export interface AppData {
   userQuestionAnswers: UserQuestionAnswer[];
   userCaseStudyInteractions: UserCaseStudyInteraction[];
   xp_events: XpEvent[];
+  userMoods: UserMood[];
 }
 
 export interface StarRating {

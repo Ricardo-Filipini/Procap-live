@@ -1,7 +1,9 @@
+
 import React, { useState, useMemo } from 'react';
 import { Theme, View, AppData, User, MainContentProps } from '../types';
 import { VIEWS } from '../constants';
 import { Header } from './shared/Header';
+import { CheckCircleIcon, XCircleIcon, XMarkIcon } from './Icons';
 
 // Importando as novas views modularizadas
 import { AdminView } from './views/AdminView';
@@ -17,9 +19,11 @@ import { SourcesView } from './views/SourcesView';
 import { CaseStudyView } from './views/CaseStudyView';
 import { CronogramaView } from './views/CronogramaView';
 import { LinksFilesView } from './views/LinksFilesView';
+import { ContagemView } from './views/ContagemView';
+
 
 export const MainContent: React.FC<MainContentProps> = (props) => {
-  const { activeView, setActiveView, appData, theme, setTheme, onToggleLiveAgent, isLiveAgentActive, onToggleAgentSettings, navTarget, setNavTarget, setScreenContext, liveAgentStatus } = props;
+  const { activeView, setActiveView, appData, theme, setTheme, onToggleLiveAgent, isLiveAgentActive, onToggleAgentSettings, navTarget, setNavTarget, setScreenContext, liveAgentStatus, processingTasks, setProcessingTasks } = props;
 
   const handleNavigation = (viewName: string, term: string, id?: string) => {
     const targetView = VIEWS.find(v => v.name === viewName);
@@ -49,6 +53,8 @@ export const MainContent: React.FC<MainContentProps> = (props) => {
     };
 
     switch (activeView.name) {
+      case 'Contagem':
+        return <ContagemView {...viewProps} />;
       case 'Resumos':
         return <SummariesView {...viewProps} allItems={allSummaries} />;
       case 'Flashcards':
@@ -90,6 +96,30 @@ export const MainContent: React.FC<MainContentProps> = (props) => {
             onToggleAgentSettings={onToggleAgentSettings!}
           />
           {renderContent()}
+          <div className="fixed bottom-24 right-4 z-[60] flex flex-col items-end gap-2 w-80">
+            {processingTasks.map(task => (
+              <div key={task.id} className="w-full bg-card-light dark:bg-card-dark p-3 rounded-lg shadow-lg border border-border-light dark:border-border-dark animate-fade-in-up">
+                <div className="flex items-start gap-3">
+                  <div className="flex-shrink-0 mt-1">
+                    {task.status === 'processing' && <svg className="animate-spin h-5 w-5 text-primary-light" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>}
+                    {task.status === 'success' && <CheckCircleIcon className="w-5 h-5 text-green-500" />}
+                    {task.status === 'error' && <XCircleIcon className="w-5 h-5 text-red-500" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-sm truncate" title={task.name}>{task.name}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">{task.message}</p>
+                  </div>
+                  <div className="flex-shrink-0">
+                    {task.status === 'error' && (
+                      <button onClick={() => setProcessingTasks(prev => prev.filter(t => t.id !== task.id))} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                        <XMarkIcon className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
       </div>
   );
 };

@@ -1,9 +1,9 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { AppData, User, Source, ChatMessage, UserMessageVote, UserSourceVote, Summary, Flashcard, Question, Comment, MindMap, ContentType, UserContentInteraction, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer, AudioSummary, CaseStudy, UserCaseStudyInteraction, ScheduleEvent, StudyPlan, LinkFile, XpEvent } from '../types';
+import { AppData, User, Source, ChatMessage, UserMessageVote, UserSourceVote, Summary, Flashcard, Question, Comment, MindMap, ContentType, UserContentInteraction, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer, AudioSummary, CaseStudy, UserCaseStudyInteraction, ScheduleEvent, StudyPlan, LinkFile, XpEvent, UserMood } from '../types';
 
 /*
 -- =================================================================
--- 🚨 PROCAP - G200: SCRIPT DE CONFIGURAÇÃO DO BANCO DE DADOS (v7.0) 🚨
+-- 🚨 PROCAP - G200: SCRIPT DE CONFIGURAÇÃO DO BANCO DE DADOS (v10.0) 🚨
 -- =================================================================
 --
 -- INSTRUÇÕES:
@@ -19,15 +19,16 @@ import { AppData, User, Source, ChatMessage, UserMessageVote, UserSourceVote, Su
 --     - COPIE E COLE **TODO O CONTEÚDO** DESTE BLOCO SQL ABAIXO.
 --     - Clique em "RUN".
 --
--- O QUE HÁ DE NOVO (v7.0):
---   - STORAGE POLICIES (CORREÇÃO): Políticas de segurança do Storage
---     foram corrigidas para permitir operações de escrita (upload, delete)
---     para usuários AUTENTICADOS, que é o caso da aplicação após o login.
---     A política anterior permitia apenas para anônimos, causando o erro de upload.
+-- O QUE HÁ DE NOVO (v10.0):
+--   - POLÍTICA DE SEGURANÇA (RLS) UNIFICADA: A tabela `user_moods` agora usa
+--     a mesma política de segurança genérica das outras tabelas. Isso corrige
+--     um erro de permissão ('violates row-level security policy') causado por uma
+--     incompatibilidade entre a política anterior e o sistema de login personalizado
+--     do aplicativo.
 -- =================================================================
 
 -- Parte 1: Correção e Padronização das Políticas de Segurança (RLS)
-CREATE OR REPLACE PROCEDURE fix_rls_policies_v2()
+CREATE OR REPLACE PROCEDURE fix_rls_policies_v4()
 LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
@@ -43,7 +44,7 @@ BEGIN
             'audio_summaries', 'chat_messages', 'user_message_votes', 'user_source_votes',
             'user_content_interactions', 'question_notebooks', 'user_notebook_interactions',
             'user_question_answers', 'case_studies', 'schedule_events',
-            'links_files', 'study_plans', 'xp_events'
+            'links_files', 'study_plans', 'xp_events', 'user_moods'
         )
     LOOP
         -- Habilitar RLS se não estiver ativo
@@ -69,8 +70,12 @@ BEGIN
     END LOOP;
 END;
 $$;
-CALL fix_rls_policies_v2();
-DROP PROCEDURE IF EXISTS fix_rls_policies_v2();
+CALL fix_rls_policies_v4();
+DROP PROCEDURE IF EXISTS fix_rls_policies_v4();
+
+-- REMOÇÃO DAS POLÍTICAS ESPECÍFICAS ANTERIORES PARA GARANTIR A LIMPEZA
+DROP POLICY IF EXISTS "Allow users to see all moods" ON public.user_moods;
+DROP POLICY IF EXISTS "Allow users to update their own mood" ON public.user_moods;
 
 
 -- Parte 2: Criação de Novas Tabelas (se não existirem)
@@ -96,6 +101,12 @@ CREATE TABLE IF NOT EXISTS public.xp_events (
     source TEXT NOT NULL,
     content_id TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.user_moods (
+    user_id UUID PRIMARY KEY NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    mood TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 
@@ -251,7 +262,7 @@ const fetchTable = async (tableName: string, ordering?: { column: string, option
 };
 
 export const getInitialData = async (): Promise<{ data: AppData; error: string | null; }> => {
-    const emptyData: AppData = { users: [], sources: [], linksFiles: [], chatMessages: [], questionNotebooks: [], caseStudies: [], scheduleEvents: [], studyPlans: [], userMessageVotes: [], userSourceVotes: [], userContentInteractions: [], userNotebookInteractions: [], userQuestionAnswers: [], userCaseStudyInteractions: [], xp_events: [] };
+    const emptyData: AppData = { users: [], sources: [], linksFiles: [], chatMessages: [], questionNotebooks: [], caseStudies: [], scheduleEvents: [], studyPlans: [], userMessageVotes: [], userSourceVotes: [], userContentInteractions: [], userNotebookInteractions: [], userQuestionAnswers: [], userCaseStudyInteractions: [], xp_events: [], userMoods: [] };
     if (!checkSupabase()) return { data: emptyData, error: "Supabase client not configured." };
 
     try {
@@ -276,7 +287,8 @@ export const getInitialData = async (): Promise<{ data: AppData; error: string |
             userNotebookInteractions,
             userQuestionAnswers,
             userCaseStudyInteractions,
-            xp_events
+            xp_events,
+            userMoods
         ] = await Promise.all([
             fetchTable('users'),
             fetchTable('sources', { column: 'created_at', options: { ascending: false } }),
@@ -298,6 +310,7 @@ export const getInitialData = async (): Promise<{ data: AppData; error: string |
             fetchTable('user_question_answers'),
             fetchTable('user_case_study_interactions'),
             fetchTable('xp_events', { column: 'created_at', options: { ascending: false } }),
+            fetchTable('user_moods'),
         ]);
 
         // Recalculate and synchronize total XP for all users from xp_events table
@@ -349,6 +362,7 @@ export const getInitialData = async (): Promise<{ data: AppData; error: string |
             userQuestionAnswers,
             userCaseStudyInteractions,
             xp_events,
+            userMoods,
         };
 
         return { data, error: null };
@@ -408,6 +422,20 @@ export const logXpEvent = async (
         return null;
     }
     return data as XpEvent;
+};
+
+export const upsertUserMood = async (userId: string, mood: string): Promise<UserMood | null> => {
+    if (!checkSupabase()) return null;
+    const { data, error } = await supabase!
+        .from('user_moods')
+        .upsert({ user_id: userId, mood, updated_at: new Date().toISOString() }, { onConflict: 'user_id' })
+        .select()
+        .single();
+    if (error) {
+        console.error("Error upserting user mood:", error);
+        return null;
+    }
+    return data as UserMood;
 };
 
 

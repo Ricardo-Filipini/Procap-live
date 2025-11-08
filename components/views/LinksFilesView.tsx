@@ -18,8 +18,6 @@ const AnkiStudyModal: React.FC<{
     const [isLoading, setIsLoading] = useState(false);
     const [currentCardIndex, setCurrentCardIndex] = useState(0);
     const [isFlipped, setIsFlipped] = useState(false);
-    const [animation, setAnimation] = useState('');
-
 
     useEffect(() => {
         const fetchAndParseDeck = async () => {
@@ -30,20 +28,17 @@ const AnkiStudyModal: React.FC<{
                 if (error) throw error;
                 const text = await data.text();
                 
-                // FIX: 1. Remove potential UTF-8 BOM at the start of the file.
                 const cleanText = text.startsWith('\uFEFF') ? text.substring(1) : text;
 
                 const lines = cleanText.split('\n').filter(line => !line.startsWith('#') && line.trim() !== '');
                 
                 const parsedCards = lines.map(line => {
                     const parts = line.split('\t');
-                    // FIX: 2. Improve parsing to handle escaped double quotes inside fields.
                     const front = parts.shift()?.trim().replace(/^"|"$/g, '').replace(/""/g, '"') || '';
                     const back = parts.join('\t').trim().replace(/^"|"$/g, '').replace(/""/g, '"') || '';
                     return { front, back };
                 }).filter(card => card.front && card.back);
                 
-                // Fisher-Yates shuffle
                 for (let i = parsedCards.length - 1; i > 0; i--) {
                     const j = Math.floor(Math.random() * (i + 1));
                     [parsedCards[i], parsedCards[j]] = [parsedCards[j], parsedCards[i]];
@@ -65,27 +60,12 @@ const AnkiStudyModal: React.FC<{
         }
     }, [isOpen, deck]);
     
-    useEffect(() => {
-        if (isFlipped) {
-            setAnimation('animate-flip');
-        } else if (animation) { // Only animate back if it was flipped before
-            setAnimation('animate-flip-back');
-        }
-    }, [isFlipped]);
-
     const currentCard = cards[currentCardIndex];
 
     const goToCard = (index: number) => {
         if (index >= 0 && index < cards.length) {
-            if (isFlipped) {
-                setIsFlipped(false);
-                // Wait for flip-back animation to finish before changing card
-                setTimeout(() => {
-                    setCurrentCardIndex(index);
-                }, 300);
-            } else {
-                setCurrentCardIndex(index);
-            }
+            setIsFlipped(false);
+            setCurrentCardIndex(index);
         }
     };
     
@@ -105,8 +85,7 @@ const AnkiStudyModal: React.FC<{
                     <div className="flex-grow flex items-center justify-center [perspective:1000px]">
                         <div 
                              onClick={() => setIsFlipped(f => !f)}
-                             className={`relative w-full h-full min-h-[300px] cursor-pointer [transform-style:preserve-3d] ${animation}`}
-                             onAnimationEnd={() => setAnimation('')}
+                             className={`relative w-full h-full min-h-[300px] cursor-pointer [transform-style:preserve-3d] transition-transform duration-500 ${isFlipped ? '[transform:rotateY(180deg)]' : ''}`}
                         >
                             <div className="absolute w-full h-full [backface-visibility:hidden] flex items-center justify-center p-6 bg-background-light dark:bg-background-dark rounded-lg border border-border-light dark:border-border-dark">
                                 <div dangerouslySetInnerHTML={{ __html: currentCard.front }} />
