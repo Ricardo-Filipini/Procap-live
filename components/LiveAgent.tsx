@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
     GoogleGenAI,
@@ -12,7 +10,7 @@ import {
 import { AppData, User, View, AgentSettings, LiveAgentStatus } from '../types';
 import { MicrophoneIcon, MicrophoneSlashIcon, PauseIcon } from './Icons';
 import { decode, decodeAudioData, encode } from '../lib/audio';
-import { VIEWS, getFinalApiKey } from '../constants';
+import { VIEWS } from '../constants';
 import { supabase } from '../services/supabaseClient';
 
 interface LiveAgentProps {
@@ -28,6 +26,14 @@ interface LiveAgentProps {
 
 const RETRY_DELAYS = [1000, 2000, 5000, 10000]; // ms for retries
 const MAX_RETRIES = RETRY_DELAYS.length;
+
+const getApiKey = (): string | undefined => {
+    const viteKey = (import.meta as any).env?.VITE_API_KEY;
+    if (viteKey) return viteKey;
+    const envKey = process.env.API_KEY;
+    if (envKey) return envKey;
+    return undefined;
+};
 
 export const LiveAgent: React.FC<LiveAgentProps> = ({ appData, currentUser, setActiveView, setNavTarget, agentSettings, screenContext, setLiveAgentStatus, setAgentSettings }) => {
     const [isMuted, setIsMuted] = useState(false);
@@ -79,8 +85,7 @@ export const LiveAgent: React.FC<LiveAgentProps> = ({ appData, currentUser, setA
         cleanup();
         setLiveAgentStatus('connecting');
 
-        // FIX: API key is now sourced exclusively from the environment per guidelines.
-        const apiKey = getFinalApiKey();
+        const apiKey = getApiKey();
         if (!apiKey) {
             console.error("No API Key available for Live Agent.");
             setLiveAgentStatus('error');

@@ -3,7 +3,7 @@ import { AppData, User, Source, ChatMessage, UserMessageVote, UserSourceVote, Su
 
 /*
 -- =================================================================
--- 🚨 PROCAP - G200: SCRIPT DE CONFIGURAÇÃO DO BANCO DE DADOS (v5.9) 🚨
+-- 🚨 PROCAP - G200: SCRIPT DE CONFIGURAÇÃO DO BANCO DE DADOS (v7.0) 🚨
 -- =================================================================
 --
 -- INSTRUÇÕES:
@@ -19,9 +19,11 @@ import { AppData, User, Source, ChatMessage, UserMessageVote, UserSourceVote, Su
 --     - COPIE E COLE **TODO O CONTEÚDO** DESTE BLOCO SQL ABAIXO.
 --     - Clique em "RUN".
 --
--- O QUE HÁ DE NOVO (v5.9):
---   - ANKI DECK SUPPORT: Adicionada a coluna `is_anki_deck` na tabela `links_files`
---     para suportar a nova funcionalidade de estudo de flashcards.
+-- O QUE HÁ DE NOVO (v7.0):
+--   - STORAGE POLICIES (CORREÇÃO): Políticas de segurança do Storage
+--     foram corrigidas para permitir operações de escrita (upload, delete)
+--     para usuários AUTENTICADOS, que é o caso da aplicação após o login.
+--     A política anterior permitia apenas para anônimos, causando o erro de upload.
 -- =================================================================
 
 -- Parte 1: Correção e Padronização das Políticas de Segurança (RLS)
@@ -98,7 +100,6 @@ CREATE TABLE IF NOT EXISTS public.xp_events (
 
 
 -- Parte 3: Padronização e Segurança das Funções de Votação (RPC)
--- (O conteúdo das funções permanece o mesmo da v5.7, mas é reaplicado para garantir consistência)
 DROP FUNCTION IF EXISTS public.increment_vote(uuid, text, integer);
 DROP FUNCTION IF EXISTS public.increment_content_vote(text, text, text, integer);
 
@@ -136,56 +137,59 @@ $$;
 
 
 -- Parte 4: Concessão de Permissões (Grants)
-GRANT USAGE ON SCHEMA public TO anon, authenticated;
+GRANT USAGE ON SCHEMA public, storage TO anon, authenticated;
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO anon, authenticated;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated;
 GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA storage TO anon, authenticated;
 
 
--- Parte 5: Políticas de Segurança para o Storage (Supabase Storage)
-CREATE OR REPLACE PROCEDURE fix_storage_policies_v2()
+-- Parte 5: Políticas de Segurança para o Storage (Supabase Storage) - CORREÇÃO
+CREATE OR REPLACE PROCEDURE fix_storage_policies_v4()
 LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
 DECLARE
     bucket_name TEXT;
-    policy_name TEXT;
-    table_oid OID;
-    is_rls_enabled BOOLEAN;
 BEGIN
-    SELECT oid INTO table_oid FROM pg_class WHERE relname = 'objects' AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'storage');
-    IF table_oid IS NULL THEN
-        RAISE NOTICE 'Tabela storage.objects não encontrada. Pulando políticas de storage.';
-        RETURN;
+    -- Habilitar RLS em storage.objects se ainda não estiver
+    IF NOT EXISTS (SELECT 1 FROM pg_class WHERE relname = 'objects' AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'storage') AND relrowsecurity) THEN
+        ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
     END IF;
 
-    -- Habilita RLS na tabela de objetos do storage, se não estiver ativo
-    SELECT relrowsecurity INTO is_rls_enabled FROM pg_class WHERE oid = table_oid;
-    IF NOT is_rls_enabled THEN
-        EXECUTE 'ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY';
-    END IF;
-
-    -- Itera sobre os buckets 'sources' e 'files' para aplicar as políticas
     FOREACH bucket_name IN ARRAY ARRAY['sources', 'files']
     LOOP
-        -- Limpa políticas antigas para o bucket atual
-        FOR policy_name IN (SELECT policyname FROM pg_policies WHERE schemaname = 'storage' AND tablename = 'objects' AND policyname LIKE 'Allow public access to ' || bucket_name || '%')
-        LOOP
-            EXECUTE format('DROP POLICY IF EXISTS %I ON storage.objects;', policy_name);
-        END LOOP;
+        -- Limpar políticas antigas para evitar conflitos
+        EXECUTE format('DROP POLICY IF EXISTS "Public Read Access on %s" ON storage.objects;', bucket_name);
+        EXECUTE format('DROP POLICY IF EXISTS "Authenticated Write Access on %s" ON storage.objects;', bucket_name);
+        -- Drop legacy policy names from previous versions
+        EXECUTE format('DROP POLICY IF EXISTS "Public Select for %s" ON storage.objects;', bucket_name);
+        EXECUTE format('DROP POLICY IF EXISTS "Anon Write for %s" ON storage.objects;', bucket_name);
+        EXECUTE format('DROP POLICY IF EXISTS "Allow public access to %s bucket" ON storage.objects;', bucket_name);
 
-        -- Cria a política de acesso público para o bucket atual
+        -- Política 1: Acesso de Leitura Público
+        -- Qualquer pessoa pode ler (fazer download) de arquivos nestes buckets.
         EXECUTE format('
-            CREATE POLICY "Allow public access to %s bucket"
-            ON storage.objects FOR ALL
-            USING (bucket_id = %L)
-            WITH CHECK (bucket_id = %L);
+            CREATE POLICY "Public Read Access on %s"
+            ON storage.objects FOR SELECT
+            USING ( bucket_id = %L );
+        ', bucket_name, bucket_name);
+
+        -- Política 2: Acesso de Escrita para Usuários Autenticados
+        -- Apenas usuários logados (autenticados) podem fazer upload, alterar ou deletar arquivos.
+        EXECUTE format('
+            CREATE POLICY "Authenticated Write Access on %s"
+            ON storage.objects FOR ALL -- Abrange INSERT, UPDATE, DELETE
+            TO authenticated
+            USING ( bucket_id = %L )
+            WITH CHECK ( bucket_id = %L );
         ', bucket_name, bucket_name, bucket_name);
+
     END LOOP;
 END;
 $$;
-CALL fix_storage_policies_v2();
-DROP PROCEDURE IF EXISTS fix_storage_policies_v2();
+CALL fix_storage_policies_v4();
+DROP PROCEDURE IF EXISTS fix_storage_policies_v4();
 
 */
 

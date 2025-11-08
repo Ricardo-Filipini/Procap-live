@@ -1,6 +1,4 @@
 
-
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { MainContentProps } from '../../types';
 import { Source } from '../../types';
@@ -101,7 +99,7 @@ const AddSourceModal: React.FC<{
     };
 
     const handleProcessClick = () => {
-        if (files) {
+        if (files && files.length > 0) {
             onProcess(files, title.trim(), prompt.trim());
             onClose();
         }
@@ -169,7 +167,7 @@ const AddSourceModal: React.FC<{
                         </ul>
                     </div>
                 )}
-                <button onClick={handleProcessClick} disabled={!files} className="mt-4 w-full bg-primary-light text-white font-bold py-2 px-4 rounded-md transition disabled:opacity-50 flex items-center justify-center gap-2">
+                <button onClick={handleProcessClick} disabled={!files || files.length === 0} className="mt-4 w-full bg-primary-light text-white font-bold py-2 px-4 rounded-md transition disabled:opacity-50 flex items-center justify-center gap-2">
                    <SparklesIcon className="w-5 h-5"/> Processar e Gerar Conteúdo
                 </button>
             </div>
@@ -235,7 +233,7 @@ export const SourcesView: React.FC<SourcesViewProps> = ({ appData, setAppData, c
 
             setProcessingTasks(prev => prev.map(t => t.id === taskId ? { ...t, message: 'Analisando e gerando conteúdo com IA...' } : t));
             const existingTopics = appData.sources.map(s => ({ materia: s.materia, topic: s.topic }));
-            const generated = await processAndGenerateAllContentFromSource(fullText, existingTopics, prompt, agentSettings?.apiKey);
+            const generated = await processAndGenerateAllContentFromSource(fullText, existingTopics, prompt);
             if (generated.error) throw new Error(generated.error);
             
             const finalTitle = title || generated.title;
@@ -259,7 +257,7 @@ export const SourcesView: React.FC<SourcesViewProps> = ({ appData, setAppData, c
             setProcessingTasks(prev => prev.map(t => t.id === taskId ? { ...t, message: 'Salvando conteúdo gerado...' } : t));
             const mindMapPrompts = generated.mindMapTopics || [];
             const mindMapPromises = mindMapPrompts.map(async (topic: {title: string, prompt: string}) => {
-                const { base64Image, error } = await generateImageForMindMap(topic.prompt, agentSettings?.apiKey);
+                const { base64Image, error } = await generateImageForMindMap(topic.prompt);
                 if (error) {
                     console.warn(`Could not generate mind map for "${topic.title}": ${error}`);
                     return null;
@@ -347,7 +345,7 @@ export const SourcesView: React.FC<SourcesViewProps> = ({ appData, setAppData, c
             
             if (type === 'mind_maps') {
                 const existingTitles = source.mind_maps.map(m => m.title);
-                const newTopics = await generateMoreMindMapTopicsFromSource(fullText, existingTitles, undefined, agentSettings?.apiKey);
+                const newTopics = await generateMoreMindMapTopicsFromSource(fullText, existingTitles, undefined);
 
                 if (newTopics.length === 0) {
                     alert("A IA não encontrou novos tópicos para Mapas Mentais.");
@@ -355,7 +353,7 @@ export const SourcesView: React.FC<SourcesViewProps> = ({ appData, setAppData, c
                 }
 
                 const mindMapPromises = newTopics.map(async (topic) => {
-                    const { base64Image } = await generateImageForMindMap(topic.prompt, agentSettings?.apiKey);
+                    const { base64Image } = await generateImageForMindMap(topic.prompt);
                     if (base64Image) {
                         const imageBlob = await (await fetch(`data:image/png;base64,${base64Image}`)).blob();
                         const imagePath = `${currentUser.id}/mindmaps/${source.id}_${topic.title.replace(/\s/g, '_')}_${Date.now()}.png`;
@@ -381,11 +379,11 @@ export const SourcesView: React.FC<SourcesViewProps> = ({ appData, setAppData, c
                 const userPrompt = undefined; // No UI for this yet, but the function supports it.
 
                 if (type === 'questions') {
-                    newGenerated = await generateMoreQuestionsFromSource(fullText, source.questions, userPrompt, agentSettings?.apiKey);
+                    newGenerated = await generateMoreQuestionsFromSource(fullText, source.questions, userPrompt);
                 } else if (type === 'summaries') {
-                    newGenerated = await generateMoreSummariesFromSource(fullText, source.summaries, userPrompt, agentSettings?.apiKey);
+                    newGenerated = await generateMoreSummariesFromSource(fullText, source.summaries, userPrompt);
                 } else if (type === 'flashcards') {
-                    newGenerated = await generateMoreFlashcardsFromSource(fullText, source.flashcards, userPrompt, agentSettings?.apiKey);
+                    newGenerated = await generateMoreFlashcardsFromSource(fullText, source.flashcards, userPrompt);
                 }
 
                 if (!newGenerated || newGenerated.error) throw new Error(newGenerated?.error || "A geração de conteúdo falhou.");

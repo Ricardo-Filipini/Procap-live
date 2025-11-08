@@ -1,15 +1,25 @@
 import { GoogleGenAI, GenerateContentResponse, Type, Part, Modality } from "@google/genai";
 import { ContentType, Question, User, UserContentInteraction, UserQuestionAnswer, Source } from '../types';
-import { getFinalApiKey } from '../constants';
 
-// New function to get the AI client dynamically.
-// It prioritizes the user-provided key, then environment variables.
-// It NO LONGER uses hardcoded fallback keys.
-const getAiClient = (apiKey?: string): GoogleGenAI | null => {
-    // FIX: The `getFinalApiKey` function does not accept arguments, as per guidelines to exclusively use environment variables.
-    const finalApiKey = getFinalApiKey();
+const getApiKey = (): string | undefined => {
+    // Vite expõe variáveis de ambiente através de `import.meta.env`. Este é o método primário.
+    const viteKey = (import.meta as any).env?.VITE_API_KEY;
+    if (viteKey) {
+        return viteKey;
+    }
+    // `process.env` é um fallback para outros ambientes.
+    const envKey = process.env.API_KEY;
+    if (envKey) {
+        return envKey;
+    }
+    return undefined;
+};
+
+
+const getAiClient = (): GoogleGenAI | null => {
+    const finalApiKey = getApiKey();
     if (!finalApiKey) {
-        console.warn("Chave de API do Gemini não encontrada. Por favor, configure uma nas Configurações do Agente IA ou como uma variável de ambiente.");
+        console.error("Chave de API do Gemini não encontrada. Verifique as variáveis de ambiente (VITE_API_KEY ou API_KEY).");
         return null;
     }
     return new GoogleGenAI({ apiKey: finalApiKey });
@@ -17,16 +27,21 @@ const getAiClient = (apiKey?: string): GoogleGenAI | null => {
 
 const handleApiError = (error: unknown, defaultMessage: string): { error: string } => {
     console.error(defaultMessage, error);
-    if (error instanceof Error && (error.message.includes('API key not valid') || error.message.includes('PERMISSION_DENIED') || error.message.includes('leaked'))) {
-        return { error: "Sua chave de API é inválida ou foi revogada. Por favor, verifique-a nas Configurações do Agente IA." };
+    if (error instanceof Error) {
+        if (error.message.includes('API key not valid') || error.message.includes('PERMISSION_DENIED') || error.message.includes('leaked')) {
+            return { error: "A chave de API fornecida pelo ambiente é inválida ou foi revogada." };
+        }
+        if (error.message.includes('Unterminated string in JSON')) {
+            return { error: "Erro de autenticação ou resposta inesperada da IA. Verifique a chave de API e a complexidade do prompt." };
+        }
     }
     return { error: defaultMessage };
 };
 
-export const getSimpleChatResponse = async (history: { role: string, parts: Part[] }[], newMessage: string, apiKey?: string): Promise<string> => {
-  const ai = getAiClient(apiKey);
+export const getSimpleChatResponse = async (history: { role: string, parts: Part[] }[], newMessage: string): Promise<string> => {
+  const ai = getAiClient();
   if (!ai) {
-    return "A funcionalidade da IA está desabilitada. Configure a API Key.";
+    return "A funcionalidade da IA está desabilitada. A API Key não foi configurada no ambiente.";
   }
   try {
     const model = 'gemini-2.5-flash';
@@ -40,17 +55,17 @@ export const getSimpleChatResponse = async (history: { role: string, parts: Part
   } catch (error) {
     console.error("Error calling Gemini API:", error);
     if (error instanceof Error && (error.message.includes('API key not valid') || error.message.includes('PERMISSION_DENIED'))) {
-        return "A chave de API configurada parece ser inválida. Verifique-a nas Configurações do Agente IA.";
+        return "A chave de API configurada no ambiente parece ser inválida.";
     }
     return "Desculpe, ocorreu um erro ao me comunicar com a IA.";
   }
 };
 
 
-export const generateQuestionsFromTopic = async (topic: string, apiKey?: string): Promise<any> => {
-    const ai = getAiClient(apiKey);
+export const generateQuestionsFromTopic = async (topic: string): Promise<any> => {
+    const ai = getAiClient();
     if (!ai) {
-        return { error: "A funcionalidade da IA está desabilitada. Configure a API Key." };
+        return { error: "A funcionalidade da IA está desabilitada. A API Key não foi configurada no ambiente." };
     }
     try {
         const prompt = `Gere 3 questões de múltipla escolha sobre o tópico "${topic}" para um concurso do Banco Central. Cada questão deve ter 5 opções, uma resposta correta, uma breve explicação e duas dicas úteis e sutis. As dicas devem ajudar no raciocínio para chegar à resposta correta, mas NUNCA devem entregar a resposta de forma óbvia ou direta. Siga estritamente o schema JSON fornecido.`;
@@ -94,8 +109,8 @@ export const generateQuestionsFromTopic = async (topic: string, apiKey?: string)
     }
 };
 
-export const processAndGenerateAllContentFromSource = async (text: string, existingTopics: {materia: string, topic: string}[], userPrompt?: string, apiKey?: string): Promise<any> => {
-    const ai = getAiClient(apiKey);
+export const processAndGenerateAllContentFromSource = async (text: string, existingTopics: {materia: string, topic: string}[], userPrompt?: string): Promise<any> => {
+    const ai = getAiClient();
     if (!ai) return { error: "A funcionalidade da IA está desabilitada. Configure uma chave de API válida." };
 
     const prompt = `
@@ -110,7 +125,7 @@ export const processAndGenerateAllContentFromSource = async (text: string, exist
         - **Questões (questions):** SEJA EXTREMAMENTE EXAUSTIVO. Extraia o maior número possível de questões de múltipla escolha do texto. Cada questão deve ter 5 opções, uma resposta correta, uma explicação clara e DUAS dicas úteis e sutis que ajudem no raciocínio, mas NUNCA entreguem a resposta. Abarque todo o conteúdo do arquivo.
     4.  **Mapas Mentais:** Identifique os principais sub-tópicos do texto que se beneficiariam de um mapa mental visual. Para cada sub-tópico, forneça:
         a. Um \`title\` curto e descritivo (máximo 5 palavras).
-        b. Um \`prompt\` DETALHADO para gerar a imagem. Este prompt deve instruir a IA de imagem a criar um mapa mental claro, com todo o texto em Português do Brasil (pt-BR) e com grafia perfeita, incluindo acentuação. O prompt DEVE conter as palavras-chave e conceitos principais que devem aparecer no mapa mental. Exemplo de prompt: "Crie um mapa mental sobre Política Monetária, com os conceitos centrais 'COPOM', 'Taxa Selic', 'Operações de Mercado Aberto', 'Depósito Compulsório'. O texto deve ser em português do Brasil e com grafia perfeita."
+        b. Um \`prompt\` DETALHADO para gerar a imagem. Este prompt deve instruir a IA de imagem a criar um mapa mental claro, com todo o texto em Português do Brasil (pt-BR) e com grafia perfeita, incluindo acentuação. O prompt DEVE conter as palavras-chave e conceitos principais que devem aparecer no mapa mental. Exemplo de prompt: "Crie um mapa mental sobre Política Monetária, com os conceitos centrais 'COPOM', 'Taxa Selic', 'Operações de Mercado Aberto', 'Depósito Compulório'. O texto deve ser em português do Brasil e com grafia perfeita."
     5.  **Formato:** Retorne TUDO em um único objeto JSON, seguindo estritamente o schema fornecido.
 
     Texto-fonte para análise:
@@ -205,8 +220,8 @@ export const processAndGenerateAllContentFromSource = async (text: string, exist
     }
 };
 
-export const generateImageForMindMap = async (prompt: string, apiKey?: string): Promise<{ base64Image?: string; error?: string }> => {
-    const ai = getAiClient(apiKey);
+export const generateImageForMindMap = async (prompt: string): Promise<{ base64Image?: string; error?: string }> => {
+    const ai = getAiClient();
     if (!ai) {
         return { error: "A funcionalidade da IA está desabilitada. Configure uma chave de API válida." };
     }
@@ -247,12 +262,11 @@ export const generateImageForMindMap = async (prompt: string, apiKey?: string): 
 export const getPersonalizedStudyPlan = async (
     userStats: any, 
     interactions: UserContentInteraction[],
-    content: {summaries: any[], flashcards: any[], notebooks: any[], medias: any[]},
-    apiKey?: string
+    content: {summaries: any[], flashcards: any[], notebooks: any[], medias: any[]}
     ): Promise<string> => {
-    const ai = getAiClient(apiKey);
+    const ai = getAiClient();
     if (!ai) {
-        return "A funcionalidade da IA está desabilitada. Configure a API Key.";
+        return "A funcionalidade da IA está desabilitada. A API Key não foi configurada no ambiente.";
     }
     
     const favorites = interactions.filter(i => i.is_favorite).map(i => ({ type: i.content_type, id: i.content_id }));
@@ -297,8 +311,8 @@ export const getPersonalizedStudyPlan = async (
     }
 }
 
-export const filterItemsByPrompt = async (prompt: string, items: {id: string, text: string}[], apiKey?: string): Promise<string[]> => {
-    const ai = getAiClient(apiKey);
+export const filterItemsByPrompt = async (prompt: string, items: {id: string, text: string}[]): Promise<string[]> => {
+    const ai = getAiClient();
     if (!ai) {
         console.error("API Key not configured for AI filtering.");
         return items.map(i => i.id);
@@ -342,10 +356,9 @@ export const filterItemsByPrompt = async (prompt: string, items: {id: string, te
 export const generateSpecificContent = async (
     type: 'summaries' | 'flashcards' | 'questions',
     contextText: string,
-    prompt: string,
-    apiKey?: string
+    prompt: string
 ): Promise<any> => {
-    const ai = getAiClient(apiKey);
+    const ai = getAiClient();
     if (!ai) return { error: "API Key not configured." };
     
     const contentGenerationMap = {
@@ -435,8 +448,8 @@ export const generateSpecificContent = async (
     }
 };
 
-export const generateNotebookName = async (questions: Question[], apiKey?: string): Promise<string> => {
-    const ai = getAiClient(apiKey);
+export const generateNotebookName = async (questions: Question[]): Promise<string> => {
+    const ai = getAiClient();
     if (!ai) return "Caderno de Estudos";
     
     const questionTexts = questions.slice(0, 5).map(q => q.questionText).join("\n - ");
@@ -461,10 +474,9 @@ export const generateNotebookName = async (questions: Question[], apiKey?: strin
 export const generateMoreQuestionsFromSource = async (
     sourceText: string,
     existingQuestions: any[],
-    userPrompt?: string,
-    apiKey?: string
+    userPrompt?: string
 ): Promise<any> => {
-    const ai = getAiClient(apiKey);
+    const ai = getAiClient();
     if (!ai) return { error: "API Key not configured." };
 
     const prompt = `
@@ -539,10 +551,9 @@ export const generateMoreQuestionsFromSource = async (
 export const generateMoreSummariesFromSource = async (
     sourceText: string,
     existingSummaries: any[],
-    userPrompt?: string,
-    apiKey?: string
+    userPrompt?: string
 ): Promise<any> => {
-    const ai = getAiClient(apiKey);
+    const ai = getAiClient();
     if (!ai) return { error: "API Key not configured." };
     const prompt = `
     Você é um especialista em resumir textos para concursos. Sua tarefa é analisar um texto-fonte e gerar **novos e únicos** resumos, evitando duplicar os que já existem.
@@ -596,10 +607,9 @@ export const generateMoreSummariesFromSource = async (
 export const generateMoreFlashcardsFromSource = async (
     sourceText: string,
     existingFlashcards: any[],
-    userPrompt?: string,
-    apiKey?: string
+    userPrompt?: string
 ): Promise<any> => {
-    const ai = getAiClient(apiKey);
+    const ai = getAiClient();
     if (!ai) return { error: "API Key not configured." };
     const prompt = `
     Você é um especialista em criar flashcards para concursos. Sua tarefa é analisar um texto-fonte e gerar **novos e únicos** flashcards, evitando duplicar os que já existem.
@@ -651,10 +661,9 @@ export const generateMoreFlashcardsFromSource = async (
 
 export const generateContentFromPromptAndSources = async (
     prompt: string,
-    contextSources: { title: string, summary: string }[],
-    apiKey?: string
+    contextSources: { title: string, summary: string }[]
 ): Promise<any> => {
-    const ai = getAiClient(apiKey);
+    const ai = getAiClient();
     if (!ai) return { error: "API Key not configured." };
 
     const contextText = contextSources.map(s => `Fonte de Contexto: ${s.title}\nResumo: ${s.summary}`).join('\n\n---\n\n');
@@ -676,16 +685,15 @@ export const generateContentFromPromptAndSources = async (
     ---
     `;
     
-    return processAndGenerateAllContentFromSource(fullPrompt, [], undefined, apiKey); // Re-use the robust generation logic and schema
+    return processAndGenerateAllContentFromSource(fullPrompt, []); // Re-use the robust generation logic and schema
 };
 
 export const generateMoreMindMapTopicsFromSource = async (
     sourceText: string,
     existingMindMapTitles: string[],
-    userPrompt?: string,
-    apiKey?: string
+    userPrompt?: string
 ): Promise<{ title: string, prompt: string }[]> => {
-    const ai = getAiClient(apiKey);
+    const ai = getAiClient();
     if (!ai) return [];
 
     const prompt = `
@@ -748,8 +756,8 @@ export const generateMoreMindMapTopicsFromSource = async (
     }
 };
 
-export const generateCaseStudy = async (text: string | null, sources: Source[], userPrompt?: string, apiKey?: string): Promise<any> => {
-    const ai = getAiClient(apiKey);
+export const generateCaseStudy = async (text: string | null, sources: Source[], userPrompt?: string): Promise<any> => {
+    const ai = getAiClient();
     if (!ai) return { error: "API Key not configured." };
 
     const materias = [...new Set(sources.map(s => s.materia))];

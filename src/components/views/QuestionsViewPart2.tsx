@@ -565,17 +565,12 @@ export const NotebookDetailView: React.FC<{
     const [showUnansweredInAnyNotebook, setShowUnansweredInAnyNotebook] = useState(false);
     const prevShowUnansweredRef = useRef(showUnansweredInAnyNotebook);
 
-    const appDataRef = useRef(appData);
-    appDataRef.current = appData;
-
     const questionsInNotebook = useMemo(() => {
         if (notebook === 'all') return allQuestions;
         // FIX: In `questionsInNotebook` useMemo, used `Array.isArray` to safely handle `notebook.question_ids` and prevent potential runtime errors, improving type safety.
         // FIX: Use a type guard to safely filter notebook.question_ids, ensuring it's a clean array of strings.
-        // FIX: Explicitly type 'id' as 'unknown' to satisfy stricter type checking for the type guard.
         // FIX: Explicitly typing 'id' as 'any' to resolve TS error. The type guard ensures safety.
-        // FIX: Explicitly typed the parameter as `unknown` and used a type guard to safely filter for strings, resolving a `Type 'unknown' is not assignable to type 'string'` error.
-        const questionIds: string[] = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id: unknown): id is string => typeof id === 'string') : [];
+        const questionIds: string[] = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id: any): id is string => typeof id === 'string') : [];
         const idSet = new Set(questionIds);
         return allQuestions.filter(q => idSet.has(q.id));
     }, [notebook, allQuestions]);
@@ -587,6 +582,7 @@ export const NotebookDetailView: React.FC<{
     }, [questionsInNotebook, shuffleTrigger]);
 
     const prevQuestionSortOrder = useRef(questionSortOrder);
+    const currentQuestion = sortedQuestions[currentQuestionIndex];
 
     useEffect(() => {
         const enablingWrongOnly = !prevShowWrongOnlyRef.current && showWrongOnly;
@@ -601,11 +597,9 @@ export const NotebookDetailView: React.FC<{
         let questionsToProcess = [...questionsInNotebook];
         const currentQuestionId = currentQuestion?.id;
 
-        const _appData = appDataRef.current;
-
         if (showWrongOnly) {
             const answeredIncorrectlyIds = new Set(
-                _appData.userQuestionAnswers
+                appData.userQuestionAnswers
                     .filter(ans => ans.user_id === currentUser.id && ans.notebook_id === notebookId)
                     .filter(ans => !ans.is_correct_first_try)
                     .map(ans => ans.question_id)
@@ -615,7 +609,7 @@ export const NotebookDetailView: React.FC<{
             );
         } else if (notebook === 'all' && showUnansweredInAnyNotebook) {
             const answeredInAnyNotebookIds = new Set(
-                _appData.userQuestionAnswers
+                appData.userQuestionAnswers
                     .filter(ans => ans.user_id === currentUser.id)
                     .map(ans => ans.question_id)
             );
@@ -639,11 +633,8 @@ export const NotebookDetailView: React.FC<{
                 case 'default':
                 default:
                     if (notebook !== 'all') {
-                        // FIX: Removed incorrect ':unknown' type. The type of 'id' is correctly inferred from the array, and the type guard ensures safety.
-                        // FIX: Removed explicit 'unknown' type from filter parameter 'id' to let TypeScript infer it, resolving a type error. The type guard `id is string` remains for safety.
-                        // FIX: Explicitly typing 'id' as 'any' to resolve TS error. The type guard ensures safety.
-                        // FIX: Explicitly typed the parameter as `unknown` and used a type guard to safely filter for strings, resolving a `Type 'unknown' is not assignable to type 'string'` error.
-                        const questionIds: string[] = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id: unknown): id is string => typeof id === 'string') : [];
+                        // FIX: Explicitly typed 'id' as 'any' to resolve TS error where it was inferred as 'unknown'.
+                        const questionIds: string[] = (Array.isArray(notebook.question_ids) ? notebook.question_ids : []).filter((id: any): id is string => typeof id === 'string');
                         const orderMap = new Map(questionIds.map((id, index) => [id, index]));
                         groupToSort.sort((a: Question, b: Question) => {
                             const orderA = orderMap.get(a.id) ?? Infinity;

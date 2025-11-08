@@ -162,24 +162,3 @@ export const ACHIEVEMENTS = {
       { count: 20000, title: "Lenda do Procap" },
   ]
 };
-
-/**
- * Retrieves the API key from the environment.
- * Per guidelines, it must come exclusively from process.env.API_KEY.
- */
-export const getFinalApiKey = (): string | undefined => {
-    // The guidelines specify to use process.env.API_KEY exclusively.
-    // It's assumed to be available in the execution environment.
-    // Vite exposes env vars via import.meta.env, which might be polyfilled to process.env.
-    const viteEnvKey = (import.meta as any).env?.VITE_API_KEY;
-    if (viteEnvKey) {
-        return viteEnvKey;
-    }
-
-    const envKey = process.env.API_KEY;
-    if (envKey) {
-        return envKey;
-    }
-
-    return undefined;
-};

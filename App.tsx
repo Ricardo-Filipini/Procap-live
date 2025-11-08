@@ -1,7 +1,4 @@
 
-
-
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { MainContent } from './components/MainContent';
@@ -10,6 +7,7 @@ import { INITIAL_APP_DATA, VIEWS, DEFAULT_AGENT_SETTINGS } from './constants';
 import { getInitialData, createUser, updateUser as supabaseUpdateUser } from './services/supabaseClient';
 import { LiveAgent } from './components/LiveAgent';
 import { AgentSettingsModal } from './components/AgentSettingsModal';
+import { CheckCircleIcon, XCircleIcon, XMarkIcon } from './components/Icons';
 
 const App: React.FC = () => {
   const [theme, setTheme] = useState<Theme>(() => {
@@ -110,6 +108,18 @@ const App: React.FC = () => {
   useEffect(() => {
       localStorage.setItem('procap_lastView', activeView.name);
   }, [activeView]);
+
+  // Auto-dismiss successful processing tasks
+  useEffect(() => {
+    const successTasks = processingTasks.filter(t => t.status === 'success');
+    if (successTasks.length > 0) {
+        const timer = setTimeout(() => {
+            setProcessingTasks(prev => prev.filter(t => !successTasks.find(st => st.id === t.id)));
+        }, 5000);
+        return () => clearTimeout(timer);
+    }
+  }, [processingTasks]);
+
 
   const handleLogin = async (pseudonym: string, password?: string): Promise<string | null> => {
     // Admin Login (local)
@@ -271,6 +281,30 @@ const App: React.FC = () => {
             style={{ minWidth: `${60 + toast.amount * 2}px`, minHeight: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           >
             +{toast.amount} XP
+          </div>
+        ))}
+      </div>
+       <div className="fixed bottom-24 right-4 z-[60] flex flex-col items-end gap-2 w-80">
+        {processingTasks.map(task => (
+          <div key={task.id} className="w-full bg-card-light dark:bg-card-dark p-3 rounded-lg shadow-lg border border-border-light dark:border-border-dark animate-fade-in-up">
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0 mt-1">
+                {task.status === 'processing' && <svg className="animate-spin h-5 w-5 text-primary-light" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>}
+                {task.status === 'success' && <CheckCircleIcon className="w-5 h-5 text-green-500" />}
+                {task.status === 'error' && <XCircleIcon className="w-5 h-5 text-red-500" />}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-sm truncate" title={task.name}>{task.name}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{task.message}</p>
+              </div>
+              <div className="flex-shrink-0">
+                {task.status === 'error' && (
+                  <button onClick={() => setProcessingTasks(prev => prev.filter(t => t.id !== task.id))} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                    <XMarkIcon className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         ))}
       </div>
