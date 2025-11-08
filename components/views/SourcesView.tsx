@@ -14,6 +14,14 @@ import { CommentsModal } from '../shared/CommentsModal';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://aistudiocdn.com/pdfjs-dist@^4.4.168/build/pdf.worker.mjs`;
 
+const sanitizeFilename = (filename: string): string => {
+    return filename
+        .normalize('NFD') // Decompose accented characters into base characters and diacritical marks
+        .replace(/[\u0300-\u036f]/g, '') // Remove the diacritical marks
+        .replace(/\s+/g, '_') // Replace spaces with underscores
+        .replace(/[^a-zA-Z0-9._-]/g, ''); // Remove any remaining non-safe characters
+};
+
 type SortOption = 'temp' | 'time' | 'subject' | 'user' | 'source';
 
 const ContentToolbar: React.FC<{
@@ -264,7 +272,7 @@ export const SourcesView: React.FC<SourcesViewProps> = ({ appData, setAppData, c
                 }
                 if (base64Image) {
                     const imageBlob = await (await fetch(`data:image/png;base64,${base64Image}`)).blob();
-                    const imagePath = `${currentUser.id}/mindmaps/${newSource.id}_${topic.title.replace(/\s/g, '_')}.png`;
+                    const imagePath = `${currentUser.id}/mindmaps/${newSource.id}_${sanitizeFilename(topic.title)}.png`;
                     const { error: uploadError } = await supabase!.storage.from('sources').upload(imagePath, imageBlob);
                     if (uploadError) {
                         console.error("Failed to upload mind map image:", uploadError);
@@ -289,9 +297,8 @@ export const SourcesView: React.FC<SourcesViewProps> = ({ appData, setAppData, c
             if (!createdContent) throw new Error("Falha ao salvar o conteúdo gerado.");
 
             setProcessingTasks(prev => prev.map(t => t.id === taskId ? { ...t, message: 'Enviando arquivos originais...' } : t));
-            const sanitizeFileName = (name: string) => name.replace(/[^a-zA-Z0-9._-]/g, '_');
             const uploadPromises = fileArray.map(async (file: File) => {
-                const filePath = `${currentUser.id}/${newSource.id}_${sanitizeFileName(file.name)}`;
+                const filePath = `${currentUser.id}/${newSource.id}_${sanitizeFilename(file.name)}`;
                 const { error } = await supabase!.storage.from('sources').upload(filePath, file);
                 if (error) throw error;
                 return filePath;
@@ -356,7 +363,7 @@ export const SourcesView: React.FC<SourcesViewProps> = ({ appData, setAppData, c
                     const { base64Image } = await generateImageForMindMap(topic.prompt);
                     if (base64Image) {
                         const imageBlob = await (await fetch(`data:image/png;base64,${base64Image}`)).blob();
-                        const imagePath = `${currentUser.id}/mindmaps/${source.id}_${topic.title.replace(/\s/g, '_')}_${Date.now()}.png`;
+                        const imagePath = `${currentUser.id}/mindmaps/${source.id}_${sanitizeFilename(topic.title)}_${Date.now()}.png`;
                         const { error } = await supabase!.storage.from('sources').upload(imagePath, imageBlob);
                         if (error) return null;
                         const { data: { publicUrl } } = supabase!.storage.from('sources').getPublicUrl(imagePath);

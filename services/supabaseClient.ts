@@ -316,7 +316,9 @@ export const getInitialData = async (): Promise<{ data: AppData; error: string |
         // Nest content under sources
         const sourcesWithContent = sources.map((source: Source) => ({
             ...source,
-            summaries: rawSummaries.filter(s => s.source_id === source.id),
+            summaries: rawSummaries
+                .filter(s => s.source_id === source.id)
+                .map((s: any) => ({ ...s, keyPoints: s.key_points })),
             flashcards: flashcards.filter(f => f.source_id === source.id),
             questions: rawQuestions
                 .filter(q => q.source_id === source.id)
@@ -443,9 +445,15 @@ export const addGeneratedContent = async (sourceId: string, content: any): Promi
     const results: any = {};
     try {
         if (content.summaries?.length) {
-            const { data, error } = await supabase!.from('summaries').insert(content.summaries.map((s: any) => ({...s, source_id: sourceId}))).select();
+            const payload = content.summaries.map((s: any) => ({
+                title: s.title,
+                content: s.content,
+                key_points: s.keyPoints,
+                source_id: sourceId
+            }));
+            const { data, error } = await supabase!.from('summaries').insert(payload).select();
             if(error) throw error;
-            results.summaries = data;
+            results.summaries = data.map((s: any) => ({...s, keyPoints: s.key_points}));
         }
          if (content.flashcards?.length) {
             const { data, error } = await supabase!.from('flashcards').insert(content.flashcards.map((f: any) => ({...f, source_id: sourceId}))).select();
@@ -484,9 +492,15 @@ export const appendGeneratedContentToSource = async (sourceId: string, content: 
     const results: any = { newSummaries: [], newFlashcards: [], newQuestions: [], newMindMaps: [] };
     try {
         if (content.summaries?.length) {
-            const { data, error } = await supabase!.from('summaries').insert(content.summaries.map((s: any) => ({...s, source_id: sourceId}))).select();
+            const payload = content.summaries.map((s: any) => ({
+                title: s.title,
+                content: s.content,
+                key_points: s.keyPoints,
+                source_id: sourceId
+            }));
+            const { data, error } = await supabase!.from('summaries').insert(payload).select();
             if(error) throw error;
-            results.newSummaries = data;
+            results.newSummaries = data.map((s: any) => ({...s, keyPoints: s.key_points}));
         }
         if (content.flashcards?.length) {
             const { data, error } = await supabase!.from('flashcards').insert(content.flashcards.map((f: any) => ({...f, source_id: sourceId}))).select();

@@ -567,10 +567,8 @@ export const NotebookDetailView: React.FC<{
 
     const questionsInNotebook = useMemo(() => {
         if (notebook === 'all') return allQuestions;
-        // FIX: In `questionsInNotebook` useMemo, used `Array.isArray` to safely handle `notebook.question_ids` and prevent potential runtime errors, improving type safety.
-        // FIX: Use a type guard to safely filter notebook.question_ids, ensuring it's a clean array of strings.
-        // FIX: Explicitly typing 'id' as 'any' to resolve TS error. The type guard ensures safety.
-        const questionIds: string[] = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id: any): id is string => typeof id === 'string') : [];
+        // FIX: Safely filter question_ids from untyped source by casting to unknown[] and using a type guard.
+        const questionIds: string[] = Array.isArray(notebook.question_ids) ? (notebook.question_ids as unknown[]).filter((id: unknown): id is string => typeof id === 'string') : [];
         const idSet = new Set(questionIds);
         return allQuestions.filter(q => idSet.has(q.id));
     }, [notebook, allQuestions]);
@@ -633,8 +631,8 @@ export const NotebookDetailView: React.FC<{
                 case 'default':
                 default:
                     if (notebook !== 'all') {
-                        // FIX: Explicitly typed 'id' as 'any' to resolve TS error where it was inferred as 'unknown'.
-                        const questionIds: string[] = (Array.isArray(notebook.question_ids) ? notebook.question_ids : []).filter((id: any): id is string => typeof id === 'string');
+                        // FIX: Safely filter question_ids from untyped source by casting to unknown[] and using a type guard.
+                        const questionIds: string[] = Array.isArray(notebook.question_ids) ? (notebook.question_ids as unknown[]).filter((id: unknown): id is string => typeof id === 'string') : [];
                         const orderMap = new Map(questionIds.map((id, index) => [id, index]));
                         groupToSort.sort((a: Question, b: Question) => {
                             const orderA = orderMap.get(a.id) ?? Infinity;
