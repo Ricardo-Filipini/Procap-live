@@ -18,6 +18,14 @@ const MOODS = [
     { name: 'Marcelando', emoji: '😎', color: '#06b6d4', bgColor: 'bg-cyan-500/10', borderColor: 'border-cyan-500' },
 ];
 
+const CustomYAxisTick: React.FC<any> = ({ x, y, payload }) => (
+    <g transform={`translate(${x},${y})`}>
+        <text x={0} y={0} dy={4} textAnchor="end" fill="currentColor" fontSize={24} className="transition-all">
+            {payload.value}
+        </text>
+    </g>
+);
+
 export const ContagemView: React.FC<MainContentProps> = ({ appData, setAppData, currentUser }) => {
     const [now, setNow] = useState(new Date());
 
@@ -88,7 +96,7 @@ export const ContagemView: React.FC<MainContentProps> = ({ appData, setAppData, 
                         className="bg-primary-light h-6 rounded-full flex items-center justify-center text-white font-bold text-sm transition-all duration-1000 ease-out"
                         style={{ width: `${timeValues.progressPercentage}%` }}
                     >
-                        {timeValues.progressPercentage.toFixed(2)}%
+                        {timeValues.progressPercentage.toFixed(4)}%
                     </div>
                 </div>
             </div>
@@ -108,19 +116,19 @@ export const ContagemView: React.FC<MainContentProps> = ({ appData, setAppData, 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
                     <h2 className="text-2xl font-bold mb-4">Como você está se sentindo hoje? 🤔</h2>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                         {MOODS.map(mood => (
                             <button
                                 key={mood.name}
                                 onClick={() => handleMoodChange(mood.name)}
-                                className={`p-4 rounded-lg text-center transition-all border-2 ${
+                                className={`p-2 rounded-lg text-center transition-all border-2 ${
                                     currentUserMood === mood.name
                                         ? `${mood.bgColor} ${mood.borderColor} scale-105 shadow-lg`
                                         : 'bg-background-light dark:bg-background-dark border-transparent hover:scale-105 hover:shadow-md'
                                 }`}
                             >
-                                <div className="text-4xl">{mood.emoji}</div>
-                                <div className="text-sm font-semibold mt-2">{mood.name}</div>
+                                <div className="text-2xl">{mood.emoji}</div>
+                                <div className="text-xs font-semibold mt-1">{mood.name}</div>
                             </button>
                         ))}
                     </div>
@@ -131,8 +139,12 @@ export const ContagemView: React.FC<MainContentProps> = ({ appData, setAppData, 
                          <BarChart data={moodStats} layout="vertical" margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
                              <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                              <XAxis type="number" hide />
-                             <YAxis dataKey="emoji" type="category" width={40} tickLine={false} axisLine={false} />
-                             <Tooltip cursor={{fill: 'rgba(200,200,200,0.1)'}} contentStyle={{ backgroundColor: 'rgba(30,30,30,0.8)', border: 'none', color: 'white', borderRadius: '8px' }} />
+                             <YAxis dataKey="emoji" type="category" width={60} tickLine={false} axisLine={false} tick={<CustomYAxisTick />} />
+                             <Tooltip 
+                                cursor={{fill: 'rgba(200,200,200,0.1)'}} 
+                                contentStyle={{ backgroundColor: 'rgba(30,30,30,0.8)', border: 'none', color: 'white', borderRadius: '8px' }}
+                                formatter={(value, name, props) => [value, props.payload.name]}
+                             />
                              <Bar dataKey="count" fill="#8884d8" barSize={20}>
                                 {moodStats.map((entry, index) => (
                                     <Cell key={`cell-${index}`} fill={entry.color} />

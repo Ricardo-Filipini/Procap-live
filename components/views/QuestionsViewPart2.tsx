@@ -581,6 +581,12 @@ export const NotebookDetailView: React.FC<{
 
     const prevQuestionSortOrder = useRef(questionSortOrder);
     const currentQuestion = sortedQuestions[currentQuestionIndex];
+    const displayedQuestionIdRef = useRef<string | null>(null);
+
+    useEffect(() => {
+        displayedQuestionIdRef.current = currentQuestion?.id ?? null;
+    }, [currentQuestion]);
+
 
     useEffect(() => {
         const enablingWrongOnly = !prevShowWrongOnlyRef.current && showWrongOnly;
@@ -593,7 +599,7 @@ export const NotebookDetailView: React.FC<{
         prevQuestionSortOrder.current = questionSortOrder;
 
         let questionsToProcess = [...questionsInNotebook];
-        const currentQuestionId = currentQuestion?.id;
+        const currentId = displayedQuestionIdRef.current;
 
         if (showWrongOnly) {
             const answeredIncorrectlyIds = new Set(
@@ -603,7 +609,7 @@ export const NotebookDetailView: React.FC<{
                     .map(ans => ans.question_id)
             );
             questionsToProcess = questionsToProcess.filter(q => 
-                answeredIncorrectlyIds.has(q.id) || q.id === currentQuestionId
+                answeredIncorrectlyIds.has(q.id) || q.id === currentId
             );
         } else if (notebook === 'all' && showUnansweredInAnyNotebook) {
             const answeredInAnyNotebookIds = new Set(
@@ -612,7 +618,7 @@ export const NotebookDetailView: React.FC<{
                     .map(ans => ans.question_id)
             );
             questionsToProcess = questionsToProcess.filter(q => 
-                !answeredInAnyNotebookIds.has(q.id) || q.id === currentQuestionId
+                !answeredInAnyNotebookIds.has(q.id) || q.id === currentId
             );
         }
 
@@ -969,15 +975,11 @@ export const NotebookDetailView: React.FC<{
             <h2 className={`text-xl font-semibold mb-4 ${FONT_SIZE_CLASSES[fontSize]}`}>{currentQuestion?.questionText || 'Carregando enunciado...'}</h2>
 
             <div className={`space-y-3 ${FONT_SIZE_CLASSES[fontSize]}`}>
-                {/* FIX: Explicitly type `option` as a string to resolve TS error due to upstream type pollution. */}
-                {/* FIX: Defensively handle `option` as `unknown` and cast to string to prevent runtime errors from malformed data. */}
-                {/* FIX: Type 'unknown' is not assignable to type 'string'. Coercing 'option' to a string to handle potential type pollution from the data source. */}
-                {/* FIX: Explicitly typing 'option' as 'any' to handle type pollution from the data source where 'options' may not be a clean string array. */}
-                {(currentQuestion?.options || []).map((option: any, index: number) => {
-                    const optionAsString = String(option);
-                    const isSelected = selectedOption === optionAsString;
-                    const isWrong = wrongAnswers.has(optionAsString);
-                    const isCorrect = optionAsString === currentQuestion.correctAnswer;
+                {/* FIX: Type 'unknown' is not assignable to type 'string'. Explicitly typed `option` as `string` to match the `Question` type definition. */}
+                {(currentQuestion?.options || []).map((option: string, index: number) => {
+                    const isSelected = selectedOption === option;
+                    const isWrong = wrongAnswers.has(option);
+                    const isCorrect = option === currentQuestion.correctAnswer;
 
                     let optionClass = "bg-background-light dark:bg-background-dark border-border-light dark:border-border-dark hover:border-primary-light dark:hover:border-primary-dark";
                     let cursorClass = "cursor-pointer";
@@ -1000,9 +1002,9 @@ export const NotebookDetailView: React.FC<{
                     }
 
                     return (
-                        <div key={index} onClick={() => handleSelectOption(optionAsString)}
+                        <div key={index} onClick={() => handleSelectOption(option)}
                              className={`p-4 border rounded-lg transition-colors ${optionClass} ${cursorClass}`}>
-                             <span>{optionAsString}</span>
+                             <span>{option}</span>
                         </div>
                     );
                 })}
