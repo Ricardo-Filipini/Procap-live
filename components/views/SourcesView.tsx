@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { MainContentProps } from '../../types';
 import { Source } from '../../types';
@@ -15,12 +14,15 @@ import { CommentsModal } from '../shared/CommentsModal';
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://aistudiocdn.com/pdfjs-dist@^4.4.168/build/pdf.worker.mjs`;
 
 const sanitizeFilename = (filename: string): string => {
-    return filename
-        .normalize('NFD') // Decompose accented characters into base characters and diacritical marks
-        .replace(/[\u0300-\u036f]/g, '') // Remove the diacritical marks
-        .replace(/\s+/g, '_') // Replace spaces with underscores
-        .replace(/[^a-zA-Z0-9._-]/g, ''); // Remove any remaining non-safe characters
+    const sanitized = filename
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '') // Remove diacritical marks
+        .replace(/[^a-zA-Z0-9\s._-]/g, '')    // Remove problematic characters, but keep some safe ones
+        .trim()
+        .replace(/\s+/g, '_');          // Replace spaces with underscores
+    return sanitized.substring(0, 75); // Truncate to a reasonable length
 };
+
 
 type SortOption = 'temp' | 'time' | 'subject' | 'user' | 'source';
 
@@ -228,64 +230,94 @@ export const SourcesView: React.FC<SourcesViewProps> = ({ appData, setAppData, c
     };
 
     const handleProcessFiles = async (files: FileList, title: string, prompt: string) => {
-        // Fix: Explicitly type `fileArray` as `File[]` to resolve type inference issues where properties on `File` objects (like `.name`) were not being recognized.
         const fileArray: File[] = Array.from(files);
         const taskId = `task_batch_${Date.now()}`;
-        setProcessingTasks(prev => [...prev, { id: taskId, name: `${fileArray.length} arquivo(s)`, message: 'Iniciando processamento...', status: 'processing' }]);
+        setProcessingTasks(prev => [...prev, { id: taskId, name: title || `${fileArray.length} arquivo(s)`, message: 'Iniciando...', status: 'processing' }]);
+
+        let newSource: Source | null = null;
+        let generatedTitle = '';
 
         try {
-            setProcessingTasks(prev => prev.map(t => t.id === taskId ? { ...t, message: 'Extraindo texto dos arquivos...' } : t));
-            const textPromises = fileArray.map(extractTextFromFile);
-            const texts = await Promise.all(textPromises);
+            // 1. Create placeholder Source to get ID
+            setProcessingTasks(prev => prev.map(t => t.id === taskId ? { ...t, message: 'Criando registro da fonte...' } : t));
+            const initialSourcePayload: Partial<Source> = {
+                user_id: currentUser.id,
+                title: title || `Processando ${fileArray[0].name}...`,
+                summary: "Processando...",
+                original_filename: fileArray.map(f => f.name),
+                materia: "Aguardando IA",
+                topic: "Aguardando IA",
+                comments: [], hot_votes: 0, cold_votes: 0,
+            };
+            newSource = await addSource(initialSourcePayload);
+            if (!newSource) throw new Error("Falha ao criar o registro inicial da fonte.");
+            
+            // Add to UI immediately
+            setAppData(prev => ({ ...prev, sources: [newSource!, ...prev.sources] }));
+
+            // 2. Upload original files
+            setProcessingTasks(prev => prev.map(t => t.id === taskId ? { ...t, message: 'Enviando arquivos originais...' } : t));
+            const uploadPromises = fileArray.map(async (file: File) => {
+                const filePath = `${currentUser.id}/${newSource!.id}_${sanitizeFilename(file.name)}`;
+                const { error } = await supabase!.storage.from('sources').upload(filePath, file);
+                if (error) throw error;
+                return filePath;
+            });
+            const storagePaths = await Promise.all(uploadPromises);
+
+            // 3. Update source with storage paths
+            const updatedSourceWithPaths = await updateSource(newSource.id, { storage_path: storagePaths });
+            if (!updatedSourceWithPaths) throw new Error("Falha ao atualizar o caminho dos arquivos da fonte.");
+            newSource = { ...newSource, ...updatedSourceWithPaths };
+
+            // Update UI with file paths
+            setAppData(prev => ({ ...prev, sources: prev.sources.map(s => s.id === newSource!.id ? newSource! : s) }));
+            
+            // 4. Proceed with content generation
+            setProcessingTasks(prev => prev.map(t => t.id === taskId ? { ...t, message: 'Extraindo texto...' } : t));
+            const texts = await Promise.all(fileArray.map(extractTextFromFile));
             const fullText = texts.join('\n\n---\n\n');
 
             setProcessingTasks(prev => prev.map(t => t.id === taskId ? { ...t, message: 'Analisando e gerando conteúdo com IA...' } : t));
             const existingTopics = appData.sources.map(s => ({ materia: s.materia, topic: s.topic }));
             const generated = await processAndGenerateAllContentFromSource(fullText, existingTopics, prompt);
-            if (generated.error) throw new Error(generated.error);
-            
-            const finalTitle = title || generated.title;
+            if (generated.error) {
+                await updateSource(newSource.id, { summary: `Falha na geração de conteúdo pela IA: ${generated.error}` });
+                throw new Error(generated.error);
+            }
 
-            setProcessingTasks(prev => prev.map(t => t.id === taskId ? { ...t, message: 'Salvando nova fonte...' } : t));
-            const sourcePayload: Partial<Source> = {
-                user_id: currentUser.id,
-                title: finalTitle,
+            generatedTitle = title || generated.title;
+
+            // 5. Update source with final info from AI
+            setProcessingTasks(prev => prev.map(t => t.id === taskId ? { ...t, name: generatedTitle, message: 'Atualizando informações da fonte...' } : t));
+            const finalSourceUpdate = await updateSource(newSource.id, {
+                title: generatedTitle,
                 summary: generated.summary,
-                original_filename: fileArray.map((f: File) => f.name),
-                storage_path: [],
                 materia: generated.materia,
                 topic: generated.topic,
-                hot_votes: 0,
-                cold_votes: 0,
-                comments: []
-            };
-            const newSource = await addSource(sourcePayload);
-            if (!newSource) throw new Error("Falha ao criar a fonte no banco de dados.");
+            });
+            if (!finalSourceUpdate) throw new Error("Falha ao atualizar a fonte com os dados da IA.");
+            newSource = { ...newSource, ...finalSourceUpdate };
 
-            setProcessingTasks(prev => prev.map(t => t.id === taskId ? { ...t, message: 'Salvando conteúdo gerado...' } : t));
-            const mindMapPrompts = generated.mindMapTopics || [];
-            const mindMapPromises = mindMapPrompts.map(async (topic: {title: string, prompt: string}) => {
+            // 6. Generate and upload mind maps
+            setProcessingTasks(prev => prev.map(t => t.id === taskId ? { ...t, message: 'Gerando mapas mentais...' } : t));
+            const mindMapPromises = (generated.mindMapTopics || []).map(async (topic: { title: string, prompt: string }) => {
                 const { base64Image, error } = await generateImageForMindMap(topic.prompt);
-                if (error) {
-                    console.warn(`Could not generate mind map for "${topic.title}": ${error}`);
-                    return null;
-                }
+                if (error) { console.warn(`Could not generate mind map for "${topic.title}": ${error}`); return null; }
                 if (base64Image) {
                     const imageBlob = await (await fetch(`data:image/png;base64,${base64Image}`)).blob();
-                    const imagePath = `${currentUser.id}/mindmaps/${newSource.id}_${sanitizeFilename(topic.title)}.png`;
+                    const imagePath = `${currentUser.id}/mindmaps/${newSource!.id}_${sanitizeFilename(topic.title)}_${Date.now()}.png`;
                     const { error: uploadError } = await supabase!.storage.from('sources').upload(imagePath, imageBlob);
-                    if (uploadError) {
-                        console.error("Failed to upload mind map image:", uploadError);
-                        return null;
-                    }
+                    if (uploadError) { console.error("Failed to upload mind map image:", uploadError); return null; }
                     const { data: { publicUrl } } = supabase!.storage.from('sources').getPublicUrl(imagePath);
                     return { title: topic.title, imageUrl: publicUrl };
                 }
                 return null;
             });
-            
             const resolvedMindMaps = (await Promise.all(mindMapPromises)).filter((m): m is { title: string, imageUrl: string } => m !== null);
             
+            // 7. Save generated content
+            setProcessingTasks(prev => prev.map(t => t.id === taskId ? { ...t, message: 'Salvando conteúdo gerado...' } : t));
             const contentToSave = {
                 summaries: generated.summaries,
                 flashcards: generated.flashcards,
@@ -294,25 +326,11 @@ export const SourcesView: React.FC<SourcesViewProps> = ({ appData, setAppData, c
             };
 
             const createdContent = await addGeneratedContent(newSource.id, contentToSave);
-            if (!createdContent) throw new Error("Falha ao salvar o conteúdo gerado.");
+            if (!createdContent) throw new Error("Falha ao salvar o conteúdo gerado (resumos, questões, etc).");
 
-            setProcessingTasks(prev => prev.map(t => t.id === taskId ? { ...t, message: 'Enviando arquivos originais...' } : t));
-            const uploadPromises = fileArray.map(async (file: File) => {
-                const filePath = `${currentUser.id}/${newSource.id}_${sanitizeFilename(file.name)}`;
-                const { error } = await supabase!.storage.from('sources').upload(filePath, file);
-                if (error) throw error;
-                return filePath;
-            });
-            const storagePaths = await Promise.all(uploadPromises);
-
-            await updateSource(newSource.id, { storage_path: storagePaths });
-
+            // 8. Final UI Update
             const finalSource: Source = {
                 ...newSource,
-                title: finalTitle,
-                summary: generated.summary,
-                original_filename: fileArray.map((f: File) => f.name),
-                storage_path: storagePaths,
                 summaries: createdContent.summaries || [],
                 flashcards: createdContent.flashcards || [],
                 questions: (createdContent.questions || []).map((q: any) => ({...q, questionText: q.question_text, correctAnswer: q.correct_answer})),
@@ -320,15 +338,18 @@ export const SourcesView: React.FC<SourcesViewProps> = ({ appData, setAppData, c
                 audio_summaries: []
             };
             
-            setAppData(prev => ({ ...prev, sources: [finalSource, ...prev.sources] }));
-            setProcessingTasks(prev => prev.map(t => t.id === taskId ? { ...t, message: 'Processamento concluído com sucesso!', status: 'success' } : t));
-        
+            setAppData(prev => ({ ...prev, sources: prev.sources.map(s => s.id === finalSource.id ? finalSource : s) }));
+            setProcessingTasks(prev => prev.map(t => t.id === taskId ? { ...t, message: 'Processamento concluído!', status: 'success' } : t));
+
         } catch (error: any) {
             console.error(`Failed to process files:`, error);
-            setProcessingTasks(prev => prev.map(t => t.id === taskId ? { ...t, message: `Erro: ${error.message}`, status: 'error' } : t));
+            if (newSource) {
+                 setAppData(prev => ({ ...prev, sources: prev.sources.map(s => s.id === newSource!.id ? { ...s, title: generatedTitle || s.title, summary: `Erro no processamento: ${error.message}` } : s) }));
+            }
+            setProcessingTasks(prev => prev.map(t => t.id === taskId ? { ...t, name: title || "Falha no Upload", message: `Erro: ${error.message}`, status: 'error' } : t));
         }
     };
-    
+
     const handleGenerateMore = async (source: Source, type: 'summaries' | 'flashcards' | 'questions' | 'mind_maps') => {
         if (generatingMore) return;
         setGeneratingMore({ sourceId: source.id, type });

@@ -567,8 +567,8 @@ export const NotebookDetailView: React.FC<{
 
     const questionsInNotebook = useMemo(() => {
         if (notebook === 'all') return allQuestions;
-        // FIX: Safely filter question_ids from untyped source by casting to unknown[] and using a type guard.
-        const questionIds: string[] = Array.isArray(notebook.question_ids) ? (notebook.question_ids as unknown[]).filter((id: unknown): id is string => typeof id === 'string') : [];
+        // FIX: Safely filter question_ids from untyped source by casting to any[] and using a type guard to prevent type errors.
+        const questionIds: string[] = Array.isArray(notebook.question_ids) ? (notebook.question_ids as any[]).filter((id: any): id is string => typeof id === 'string') : [];
         const idSet = new Set(questionIds);
         return allQuestions.filter(q => idSet.has(q.id));
     }, [notebook, allQuestions]);
@@ -631,8 +631,8 @@ export const NotebookDetailView: React.FC<{
                 case 'default':
                 default:
                     if (notebook !== 'all') {
-                        // FIX: Safely filter question_ids from untyped source by casting to unknown[] and using a type guard.
-                        const questionIds: string[] = Array.isArray(notebook.question_ids) ? (notebook.question_ids as unknown[]).filter((id: unknown): id is string => typeof id === 'string') : [];
+                        // FIX: Safely filter question_ids from untyped source by casting to any[] and using a type guard to prevent type errors.
+                        const questionIds: string[] = Array.isArray(notebook.question_ids) ? (notebook.question_ids as any[]).filter((id: any): id is string => typeof id === 'string') : [];
                         const orderMap = new Map(questionIds.map((id, index) => [id, index]));
                         groupToSort.sort((a: Question, b: Question) => {
                             const orderA = orderMap.get(a.id) ?? Infinity;
