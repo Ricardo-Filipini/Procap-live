@@ -300,6 +300,7 @@ interface ClearAnswersModalProps {
 const ClearAnswersModal: React.FC<ClearAnswersModalProps> = ({ isOpen, onClose, notebook, appData, allQuestions, currentUser, onConfirm }) => {
     
     const notebookId = notebook === 'all' ? 'all_questions' : notebook.id;
+    const notebookName = notebook === 'all' ? "Todas as Questões" : (notebook as QuestionNotebook).name;
 
     const sourcesInNotebook = useMemo(() => {
         const notebookQuestionIds = new Set(
@@ -357,38 +358,30 @@ const ClearAnswersModal: React.FC<ClearAnswersModalProps> = ({ isOpen, onClose, 
             .flatMap(s => s.questionIds);
         onConfirm(questionIdsToClear);
     };
-
-    if (notebook === 'all') {
-        return (
-            <Modal isOpen={isOpen} onClose={onClose} title="Limpar Todas as Respostas">
-                <p>Tem certeza que deseja limpar TODAS as suas respostas do caderno "Todas as Questões"?</p>
-                 <div className="flex justify-end gap-4 mt-4">
-                    <button onClick={onClose} className="px-4 py-2 rounded-md bg-gray-200 dark:bg-gray-700">Cancelar</button>
-                    <button onClick={() => onConfirm([])} className="px-4 py-2 rounded-md bg-red-600 text-white">Confirmar Limpeza Total</button>
-                </div>
-            </Modal>
-        );
-    }
     
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Limpar Respostas do Caderno">
+        <Modal isOpen={isOpen} onClose={onClose} title={`Limpar Respostas: ${notebookName}`}>
             <p className="text-sm mb-4">Selecione as fontes das quais você deseja limpar suas respostas neste caderno. As respostas de questões de outras fontes não serão afetadas.</p>
             <div className="space-y-2 max-h-60 overflow-y-auto border-y border-border-light dark:border-border-dark py-2 my-2">
-                {sourcesInNotebook.map(source => (
-                     <div key={source.id} className="flex items-center gap-2 p-2 rounded-md hover:bg-background-light dark:hover:bg-background-dark">
-                        <input
-                            type="checkbox"
-                            id={`clear-source-${source.id}`}
-                            checked={selectedSourceIds.has(source.id)}
-                            onChange={() => handleToggle(source.id)}
-                            className="h-4 w-4 rounded border-gray-300 text-primary-light focus:ring-primary-light"
-                        />
-                        <label htmlFor={`clear-source-${source.id}`} className="flex-grow cursor-pointer flex justify-between">
-                            <span>{source.title}</span>
-                            <span className="text-xs text-gray-500">{source.count} questões respondidas</span>
-                        </label>
-                    </div>
-                ))}
+                {sourcesInNotebook.length > 0 ? (
+                    sourcesInNotebook.map(source => (
+                         <div key={source.id} className="flex items-center gap-2 p-2 rounded-md hover:bg-background-light dark:hover:bg-background-dark">
+                            <input
+                                type="checkbox"
+                                id={`clear-source-${source.id}`}
+                                checked={selectedSourceIds.has(source.id)}
+                                onChange={() => handleToggle(source.id)}
+                                className="h-4 w-4 rounded border-gray-300 text-primary-light focus:ring-primary-light"
+                            />
+                            <label htmlFor={`clear-source-${source.id}`} className="flex-grow cursor-pointer flex justify-between">
+                                <span>{source.title}</span>
+                                <span className="text-xs text-gray-500">{source.count} questões respondidas</span>
+                            </label>
+                        </div>
+                    ))
+                ) : (
+                    <p className="text-center text-gray-500 p-4">Nenhuma questão foi respondida neste caderno ainda.</p>
+                )}
             </div>
              <div className="flex justify-end gap-4 mt-4">
                 <button onClick={onClose} className="px-4 py-2 rounded-md bg-gray-200 dark:bg-gray-700">Cancelar</button>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts';
 import { MainContentProps, UserMood } from '../../types';
 import { upsertUserMood } from '../../services/supabaseClient';
 
@@ -49,18 +49,25 @@ export const ContagemView: React.FC<MainContentProps> = ({ appData, setAppData, 
         return { progressPercentage, weeks, days, hours, minutes, seconds };
     }, [now]);
 
-    const moodStats = useMemo(() => {
-        const moodCounts = MOODS.map(mood => ({ name: mood.name, emoji: mood.emoji, count: 0, color: mood.color }));
-        const moodMap = new Map(moodCounts.map(m => [m.name, m]));
+    const moodChartData = useMemo(() => {
+        const totalVotes = appData.userMoods.length;
 
+        const moodCounts = new Map<string, number>();
         appData.userMoods.forEach(userMood => {
-            const stat = moodMap.get(userMood.mood);
-            if (stat) {
-                stat.count++;
-            }
+            moodCounts.set(userMood.mood, (moodCounts.get(userMood.mood) || 0) + 1);
         });
 
-        return Array.from(moodMap.values());
+        return MOODS.map(mood => {
+            const count = moodCounts.get(mood.name) || 0;
+            const percentage = totalVotes > 0 ? (count / totalVotes) * 100 : 0;
+            return {
+                name: mood.name,
+                emoji: mood.emoji,
+                count: count,
+                color: mood.color,
+                formattedLabel: `${count} (${percentage.toFixed(0)}%)`
+            };
+        });
     }, [appData.userMoods]);
 
     const currentUserMood = useMemo(() => {
@@ -136,17 +143,18 @@ export const ContagemView: React.FC<MainContentProps> = ({ appData, setAppData, 
                  <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
                      <h2 className="text-2xl font-bold mb-4">🌡️ Termômetro do Humor da Galera</h2>
                      <ResponsiveContainer width="100%" height={300}>
-                         <BarChart data={moodStats} layout="vertical" margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
+                         <BarChart data={moodChartData} layout="vertical" margin={{ top: 5, right: 60, left: 10, bottom: 5 }}>
                              <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                              <XAxis type="number" hide />
                              <YAxis dataKey="emoji" type="category" width={60} tickLine={false} axisLine={false} tick={<CustomYAxisTick />} />
                              <Tooltip 
                                 cursor={{fill: 'rgba(200,200,200,0.1)'}} 
                                 contentStyle={{ backgroundColor: 'rgba(30,30,30,0.8)', border: 'none', color: 'white', borderRadius: '8px' }}
-                                formatter={(value, name, props) => [value, props.payload.name]}
+                                formatter={(value, name, props) => [props.payload.formattedLabel, props.payload.name]}
                              />
-                             <Bar dataKey="count" fill="#8884d8" barSize={20} label={{ position: 'right', offset: 5, fill: 'currentColor', fontSize: 12, fontWeight: 'bold' }}>
-                                {moodStats.map((entry, index) => (
+                             <Bar dataKey="count" fill="#8884d8" barSize={20}>
+                                <LabelList dataKey="formattedLabel" position="right" offset={5} style={{ fill: 'currentColor', fontSize: 12, fontWeight: 'bold' }} />
+                                {moodChartData.map((entry, index) => (
                                     <Cell key={`cell-${index}`} fill={entry.color} />
                                 ))}
                              </Bar>
