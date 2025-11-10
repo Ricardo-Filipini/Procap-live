@@ -15,7 +15,7 @@ type SortOption = 'temp' | 'time' | 'subject' | 'user' | 'source';
 
 // Fix: Removed the incompatible 'navTarget' override. The correct type is inherited from MainContentProps.
 interface QuestionsViewProps extends MainContentProps {
-    allItems: (Question & { user_id: string, created_at: string})[];
+    allItems: (Question & { user_id: string, created_at: string, source: any})[];
     clearNavTarget: () => void;
 }
 

@@ -87,6 +87,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ currentUser: user, app
     const overallAccuracy = questionsAnswered > 0 ? (correctAnswers / questionsAnswered) * 100 : 0;
     const pieData = [ { name: 'Corretas', value: correctAnswers }, { name: 'Incorretas', value: questionsAnswered - correctAnswers } ];
     const COLORS = ['#10b981', '#ef4444'];
+    const tooltipStyle = { backgroundColor: 'rgba(30, 30, 30, 0.85)', border: 'none', borderRadius: '8px', color: '#fff' };
 
     const topicPerformanceData = useMemo(() => {
         return Object.entries(topicPerformance)
@@ -341,7 +342,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ currentUser: user, app
                                                 }}>
                                                 {pieData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
                                             </Pie>
-                                            <Tooltip />
+                                            <Tooltip contentStyle={tooltipStyle} />
                                             <Legend />
                                         </PieChart>
                                     </ResponsiveContainer>
@@ -369,7 +370,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ currentUser: user, app
                                             <PolarAngleAxis dataKey="subject" />
                                             <PolarRadiusAxis angle={30} domain={[0, 100]} />
                                             <Radar name="% de Acerto" dataKey="Acerto" stroke="#8884d8" fill="#8884d8" fillOpacity={0.6} />
-                                            <Tooltip />
+                                            <Tooltip contentStyle={tooltipStyle} />
                                             <Legend />
                                         </RadarChart>
                                     </ResponsiveContainer>
@@ -382,7 +383,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ currentUser: user, app
                                         <CartesianGrid strokeDasharray="3 3" />
                                         <XAxis type="number" domain={[0, 100]} unit="%"/>
                                         <YAxis dataKey="name" type="category" width={150} tick={<CustomYAxisTick />} />
-                                        <Tooltip formatter={(value: number) => `${value.toFixed(1)}%`} />
+                                        <Tooltip formatter={(value: number) => `${value.toFixed(1)}%`} contentStyle={tooltipStyle} />
                                         <Legend />
                                         <Bar dataKey="Acerto" fill="#82ca9d" />
                                     </BarChart>
@@ -396,7 +397,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ currentUser: user, app
                                             <CartesianGrid strokeDasharray="3 3" />
                                             <XAxis dataKey="date" />
                                             <YAxis domain={[0, 100]} unit="%" />
-                                            <Tooltip formatter={(value: number) => [`${value.toFixed(1)}%`, 'Acerto']} />
+                                            <Tooltip formatter={(value: number) => [`${value.toFixed(1)}%`, 'Acerto']} contentStyle={tooltipStyle} />
                                             <Area type="monotone" dataKey="Acerto (%)" stroke="#10b981" fill="#10b981" fillOpacity={0.3} />
                                         </AreaChart>
                                     </ResponsiveContainer>

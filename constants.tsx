@@ -87,6 +87,7 @@ export const INITIAL_APP_DATA: AppData = {
   userQuestionAnswers: [],
   userCaseStudyInteractions: [],
   xp_events: [],
+// FIX: Added missing userMoods property to INITIAL_APP_DATA to match the AppData type.
   userMoods: [],
 };
 

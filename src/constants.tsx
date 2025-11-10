@@ -86,6 +86,7 @@ export const INITIAL_APP_DATA: AppData = {
   userQuestionAnswers: [],
   userCaseStudyInteractions: [],
   xp_events: [],
+  userMoods: [],
 };
 
 export const DEFAULT_AGENT_SETTINGS: AgentSettings = {

@@ -23,7 +23,7 @@ const CreateNotebookModal: React.FC<{
     const [prompt, setPrompt] = useState("");
     const [selectedSourceIds, setSelectedSourceIds] = useState<Set<string>>(new Set());
     const [excludeAnswered, setExcludeAnswered] = useState(false);
-    const [keepWrongAndFavorites, setKeepWrongAndFavorites] = useState(false);
+    const [keepWrongAndFavorites, setKeepWrongAndFavorites] = useState(true);
     const [isLoading, setIsLoading] = useState(false);
     const [statusMessage, setStatusMessage] = useState("");
 
@@ -44,7 +44,7 @@ const CreateNotebookModal: React.FC<{
             
             const sourcesToUse = selectedSourceIds.size > 0
                 ? allAvailableSources.filter(s => selectedSourceIds.has(s.id))
-                : allAvailableSources.filter(s => s.title.includes('(Apostila)'));
+                : allAvailableSources;
             
             let questionsPool = sourcesToUse.flatMap(s => s.questions);
 
@@ -71,7 +71,7 @@ const CreateNotebookModal: React.FC<{
                     otherQuestions = otherQuestions.filter(q => !answeredQuestionIds.has(q.id));
                 }
     
-                orderedQuestionsPool = [...priorityQuestions, ...otherQuestions];
+                orderedQuestionsPool = [...priorityQuestions, ...otherQuestions.sort(() => 0.5 - Math.random())];
             } else {
                 orderedQuestionsPool = [...questionsPool];
                 if (excludeAnswered) {
@@ -101,8 +101,7 @@ const CreateNotebookModal: React.FC<{
             }
             
             let questionIdsToSlice = finalQuestionIds;
-            if (!keepWrongAndFavorites) {
-                // Only shuffle if not prioritizing
+             if (!keepWrongAndFavorites) {
                 questionIdsToSlice = finalQuestionIds.sort(() => 0.5 - Math.random());
             }
 
@@ -142,7 +141,7 @@ const CreateNotebookModal: React.FC<{
             setPrompt("");
             setSelectedSourceIds(new Set());
             setExcludeAnswered(false);
-            setKeepWrongAndFavorites(false);
+            setKeepWrongAndFavorites(true);
             setIsLoading(false);
             setStatusMessage("");
         }
@@ -167,7 +166,7 @@ const CreateNotebookModal: React.FC<{
                         className="w-full h-20 p-2 bg-background-light dark:bg-background-dark border border-border-light dark:border-border-dark rounded-md" />
                 </div>
                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Fontes (opcional, padrão: Apostilas)</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Fontes (opcional, padrão: todas)</label>
                     <div className="max-h-40 overflow-y-auto border border-border-light dark:border-border-dark rounded-md p-2 space-y-1">
                        {appData.sources.filter(s => s.questions && s.questions.length > 0).map(source => (
                             <div key={source.id} className="flex items-center gap-2 p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700">
@@ -181,15 +180,17 @@ const CreateNotebookModal: React.FC<{
                         ))}
                     </div>
                 </div>
-                <div className="flex items-center gap-2">
-                    <input type="checkbox" id="exclude-answered" checked={excludeAnswered} onChange={e => setExcludeAnswered(e.target.checked)} 
-                        className="h-4 w-4 rounded border-gray-300 text-primary-light focus:ring-primary-light" />
-                    <label htmlFor="exclude-answered" className="text-sm cursor-pointer">Não incluir questões já respondidas</label>
-                </div>
-                <div className="flex items-center gap-2">
-                    <input type="checkbox" id="keep-wrong-favorites" checked={keepWrongAndFavorites} onChange={e => setKeepWrongAndFavorites(e.target.checked)} 
-                        className="h-4 w-4 rounded border-gray-300 text-primary-light focus:ring-primary-light" />
-                    <label htmlFor="keep-wrong-favorites" className="text-sm cursor-pointer">Priorizar erradas e favoritas</label>
+                <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-2">
+                        <input type="checkbox" id="keep-wrong-favorites" checked={keepWrongAndFavorites} onChange={e => setKeepWrongAndFavorites(e.target.checked)} 
+                            className="h-4 w-4 rounded border-gray-300 text-primary-light focus:ring-primary-light" />
+                        <label htmlFor="keep-wrong-favorites" className="text-sm cursor-pointer">Priorizar erradas e favoritas</label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <input type="checkbox" id="exclude-answered" checked={excludeAnswered} onChange={e => setExcludeAnswered(e.target.checked)} 
+                            className="h-4 w-4 rounded border-gray-300 text-primary-light focus:ring-primary-light" />
+                        <label htmlFor="exclude-answered" className="text-sm cursor-pointer">Não incluir questões já respondidas</label>
+                    </div>
                 </div>
                 <button onClick={handleCreate} disabled={isLoading} className="mt-4 w-full bg-primary-light text-white font-bold py-2 px-4 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center h-10">
                     {isLoading ? (
@@ -226,7 +227,7 @@ const QuestionStatsModal: React.FC<{
         const correctFirstTries = allAnswersForThisQuestion.filter(ans => ans.is_correct_first_try).length;
         const incorrectFirstTries = totalFirstTries - correctFirstTries;
 
-        const distribution = question.options.map(option => {
+        const distribution = (question.options as string[]).map(option => {
             const count = firstTryAnswers.filter(ans => ans === option).length;
             return { option, count, percentage: (count / totalFirstTries) * 100 };
         });
@@ -286,33 +287,52 @@ const QuestionStatsModal: React.FC<{
     );
 };
 
-const ClearAnswersModal: React.FC<{
+interface ClearAnswersModalProps {
     isOpen: boolean;
     onClose: () => void;
     notebook: QuestionNotebook | 'all';
+    appData: MainContentProps['appData'];
     allQuestions: (Question & { source?: any })[];
+    currentUser: MainContentProps['currentUser'];
     onConfirm: (questionIdsToClear: string[]) => void;
-}> = ({ isOpen, onClose, notebook, allQuestions, onConfirm }) => {
+}
+
+const ClearAnswersModal: React.FC<ClearAnswersModalProps> = ({ isOpen, onClose, notebook, appData, allQuestions, currentUser, onConfirm }) => {
     
-    const notebookQuestions = useMemo(() => {
-        if (notebook === 'all') return [];
-        const questionIds: string[] = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id): id is string => typeof id === 'string') : [];
-        const idSet = new Set(questionIds);
-        return allQuestions.filter(q => idSet.has(q.id));
-    }, [notebook, allQuestions]);
+    const notebookId = notebook === 'all' ? 'all_questions' : notebook.id;
 
     const sourcesInNotebook = useMemo(() => {
-        const sourceMap = new Map<string, { title: string; count: number; questionIds: string[] }>();
-        notebookQuestions.forEach(q => {
+        const notebookQuestionIds = new Set(
+            notebook === 'all'
+            ? allQuestions.map(q => q.id)
+            : (notebook.question_ids || []).filter((id): id is string => typeof id === 'string')
+        );
+
+        const answeredInNotebook = appData.userQuestionAnswers.filter(
+            ans => ans.user_id === currentUser.id && ans.notebook_id === notebookId && notebookQuestionIds.has(ans.question_id)
+        );
+
+        const questionSourceMap = new Map<string, Source>();
+        allQuestions.forEach(q => {
             if (q.source) {
-                const entry = sourceMap.get(q.source.id) || { title: q.source.title, count: 0, questionIds: [] };
-                entry.count++;
-                entry.questionIds.push(q.id);
-                sourceMap.set(q.source.id, entry);
+                questionSourceMap.set(q.id, q.source);
             }
         });
-        return Array.from(sourceMap.entries()).map(([id, data]) => ({ id, ...data }));
-    }, [notebookQuestions]);
+
+        const sourceMap = new Map<string, { id: string; title: string; count: number; questionIds: string[] }>();
+        answeredInNotebook.forEach(ans => {
+            const source = questionSourceMap.get(ans.question_id);
+            if (source) {
+                const entry = sourceMap.get(source.id) || { id: source.id, title: source.title, count: 0, questionIds: [] };
+                entry.count++;
+                entry.questionIds.push(ans.question_id);
+                sourceMap.set(source.id, entry);
+            }
+        });
+        return Array.from(sourceMap.values());
+
+    }, [notebook, allQuestions, appData.userQuestionAnswers, currentUser.id, notebookId]);
+
 
     const [selectedSourceIds, setSelectedSourceIds] = useState<Set<string>>(new Set());
 
@@ -365,7 +385,7 @@ const ClearAnswersModal: React.FC<{
                         />
                         <label htmlFor={`clear-source-${source.id}`} className="flex-grow cursor-pointer flex justify-between">
                             <span>{source.title}</span>
-                            <span className="text-xs text-gray-500">{source.count} questões</span>
+                            <span className="text-xs text-gray-500">{source.count} questões respondidas</span>
                         </label>
                     </div>
                 ))}
@@ -387,8 +407,8 @@ const NotebookStatsModal: React.FC<{
     allQuestions: (Question & { source?: any })[];
     currentUser: MainContentProps['currentUser'];
     onClearAnswers: (questionIdsToClear: string[]) => void;
-}> = ({ isOpen, onClose, notebook, appData, allQuestions, currentUser, onClearAnswers }) => {
-    const [isClearing, setIsClearing] = useState(false);
+    onStartClearing: () => void;
+}> = ({ isOpen, onClose, notebook, appData, allQuestions, currentUser, onClearAnswers, onStartClearing }) => {
     const notebookId = notebook === 'all' ? 'all_questions' : notebook.id;
     const notebookName = notebook === 'all' ? "Todas as Questões" : notebook.name;
     
@@ -439,64 +459,51 @@ const NotebookStatsModal: React.FC<{
     const progress = totalQuestions > 0 ? (questionsAnswered / totalQuestions) * 100 : 0;
     
     return (
-        <>
-            <ClearAnswersModal
-                isOpen={isClearing}
-                onClose={() => setIsClearing(false)}
-                notebook={notebook}
-                allQuestions={allQuestions}
-                onConfirm={(idsToClear) => {
-                    onClearAnswers(idsToClear);
-                    setIsClearing(false);
-                    onClose();
-                }}
-            />
-            <Modal isOpen={isOpen} onClose={onClose} title={`Estatísticas: ${notebookName}`}>
-                <div className="space-y-4 p-2">
-                    <div>
-                        <h3 className="text-lg font-semibold mb-2">Seu Progresso</h3>
-                        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-4">
-                            <div className="bg-primary-light h-4 rounded-full text-white text-xs flex items-center justify-center" style={{ width: `${progress}%` }}>
-                                {progress.toFixed(0)}%
-                            </div>
-                        </div>
-                        <p className="text-sm text-gray-500 text-right mt-1">{questionsAnswered} de {totalQuestions} questões respondidas</p>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="bg-background-light dark:bg-background-dark p-4 rounded-lg text-center">
-                            <p className="text-lg font-semibold">Acertos na 1ª Tentativa</p>
-                            <p className="text-3xl font-bold text-green-500">{correctFirstTry}</p>
-                        </div>
-                        <div className="bg-background-light dark:bg-background-dark p-4 rounded-lg text-center">
-                            <p className="text-lg font-semibold">Aproveitamento</p>
-                            <p className="text-3xl font-bold text-secondary-light dark:text-secondary-dark">{accuracy.toFixed(1)}%</p>
+        <Modal isOpen={isOpen} onClose={onClose} title={`Estatísticas: ${notebookName}`}>
+            <div className="space-y-4 p-2">
+                <div>
+                    <h3 className="text-lg font-semibold mb-2">Seu Progresso</h3>
+                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-4">
+                        <div className="bg-primary-light h-4 rounded-full text-white text-xs flex items-center justify-center" style={{ width: `${progress}%` }}>
+                            {progress.toFixed(0)}%
                         </div>
                     </div>
+                    <p className="text-sm text-gray-500 text-right mt-1">{questionsAnswered} de {totalQuestions} questões respondidas</p>
+                </div>
 
-                    <div className="pt-4 border-t border-border-light dark:border-border-dark">
-                        <h3 className="text-lg font-semibold mb-2">Leaderboard do Caderno</h3>
-                        <div className="max-h-40 overflow-y-auto space-y-2">
-                            {leaderboardData.length > 0 ? leaderboardData.map((entry, index) => (
-                                <div key={entry.userId} className={`flex items-center justify-between p-2 rounded-md ${entry.userId === currentUser.id ? 'bg-primary-light/10' : 'bg-background-light dark:bg-background-dark'}`}>
-                                    <p><span className="font-bold w-6 inline-block">{index + 1}.</span> {entry.pseudonym}</p>
-                                    <p className="font-bold">{entry.score} acertos</p>
-                                </div>
-                            )) : <p className="text-sm text-gray-500">Ninguém respondeu a este caderno ainda.</p>}
-                        </div>
+                <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-background-light dark:bg-background-dark p-4 rounded-lg text-center">
+                        <p className="text-lg font-semibold">Acertos na 1ª Tentativa</p>
+                        <p className="text-3xl font-bold text-green-500">{correctFirstTry}</p>
                     </div>
-
-                    <div className="pt-4 border-t border-border-light dark:border-border-dark">
-                        <button 
-                            onClick={() => setIsClearing(true)}
-                            className="w-full bg-red-600 text-white font-bold py-2 px-4 rounded-md hover:bg-red-700 transition flex items-center justify-center gap-2"
-                        >
-                        <TrashIcon className="w-5 h-5"/> Limpar Respostas e Recomeçar
-                        </button>
+                    <div className="bg-background-light dark:bg-background-dark p-4 rounded-lg text-center">
+                        <p className="text-lg font-semibold">Aproveitamento</p>
+                        <p className="text-3xl font-bold text-secondary-light dark:text-secondary-dark">{accuracy.toFixed(1)}%</p>
                     </div>
                 </div>
-            </Modal>
-        </>
+
+                <div className="pt-4 border-t border-border-light dark:border-border-dark">
+                    <h3 className="text-lg font-semibold mb-2">Leaderboard do Caderno</h3>
+                    <div className="max-h-40 overflow-y-auto space-y-2">
+                        {leaderboardData.length > 0 ? leaderboardData.map((entry, index) => (
+                            <div key={entry.userId} className={`flex items-center justify-between p-2 rounded-md ${entry.userId === currentUser.id ? 'bg-primary-light/10' : 'bg-background-light dark:bg-background-dark'}`}>
+                                <p><span className="font-bold w-6 inline-block">{index + 1}.</span> {entry.pseudonym}</p>
+                                <p className="font-bold">{entry.score} acertos</p>
+                            </div>
+                        )) : <p className="text-sm text-gray-500">Ninguém respondeu a este caderno ainda.</p>}
+                    </div>
+                </div>
+
+                <div className="pt-4 border-t border-border-light dark:border-border-dark">
+                    <button 
+                        onClick={onStartClearing}
+                        className="w-full bg-red-600 text-white font-bold py-2 px-4 rounded-md hover:bg-red-700 transition flex items-center justify-center gap-2"
+                    >
+                    <TrashIcon className="w-5 h-5"/> Limpar Respostas e Recomeçar
+                    </button>
+                </div>
+            </div>
+        </Modal>
     );
 };
 
@@ -678,6 +685,7 @@ export const NotebookDetailView: React.FC<{
     const [wrongAnswers, setWrongAnswers] = useState<Set<string>>(new Set());
     const [isCompleted, setIsCompleted] = useState(false);
     const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
+    const [isClearing, setIsClearing] = useState(false);
     const [isQuestionStatsModalOpen, setIsQuestionStatsModalOpen] = useState(false);
     const [commentingOnQuestion, setCommentingOnQuestion] = useState<Question | null>(null);
     const [fontSize, setFontSize] = useState(1);
@@ -688,6 +696,7 @@ export const NotebookDetailView: React.FC<{
     const [showWrongOnly, setShowWrongOnly] = useState(false);
     const [showUnansweredInAnyNotebook, setShowUnansweredInAnyNotebook] = useState(false);
     const [difficultyFilter, setDifficultyFilter] = useState<'all' | 'Fácil' | 'Médio' | 'Difícil'>('all');
+    const [sourceFilter, setSourceFilter] = useState<string>('all');
 
     const questionsInNotebook = useMemo(() => {
         if (notebook === 'all') return allQuestions;
@@ -695,6 +704,18 @@ export const NotebookDetailView: React.FC<{
         const idSet = new Set(questionIds);
         return allQuestions.filter(q => idSet.has(q.id));
     }, [notebook, allQuestions]);
+    
+     const sourcesForFilter = useMemo(() => {
+        if (notebook !== 'all') return [];
+        const sourceMap = new Map<string, { id: string, title: string }>();
+        allQuestions.forEach(q => {
+            if (q.source && !sourceMap.has(q.source.id)) {
+                sourceMap.set(q.source.id, { id: q.source.id, title: q.source.title });
+            }
+        });
+        return Array.from(sourceMap.values()).sort((a, b) => a.title.localeCompare(b.title));
+    }, [notebook, allQuestions]);
+
 
     const questionErrorRates = useMemo(() => {
         const stats = new Map<string, { total: number; correct: number }>();
@@ -713,29 +734,35 @@ export const NotebookDetailView: React.FC<{
     
     const difficultyThresholds = useMemo(() => {
         const ratesInNotebook = questionsInNotebook
-            .map(q => questionErrorRates.get(q.id) ?? 0.5)
+            .map(q => questionErrorRates.get(q.id) ?? 0.5) 
             .sort((a, b) => a - b);
         
-        if (ratesInNotebook.length === 0) {
-            return { easy: 0.3, medium: 0.7 };
+        if (ratesInNotebook.length < 3) {
+            return { easy: 0.33, medium: 0.66 };
         }
         
-        const easyIndex = Math.floor(ratesInNotebook.length * 0.30);
-        const mediumIndex = Math.floor(ratesInNotebook.length * 0.70);
+        const easyPercentile = ratesInNotebook[Math.floor(ratesInNotebook.length * 0.33)];
+        const mediumPercentile = ratesInNotebook[Math.floor(ratesInNotebook.length * 0.66)];
+        
         return {
-            easy: ratesInNotebook[easyIndex] ?? 0.3,
-            medium: ratesInNotebook[mediumIndex] ?? 0.7
+            easy: easyPercentile,
+            medium: mediumPercentile
         };
     }, [questionsInNotebook, questionErrorRates]);
+
 
     const stableRandomSort = useMemo(() => {
         const randomValues = new Map<string, number>();
         questionsInNotebook.forEach(q => randomValues.set(q.id, Math.random()));
         return (a: Question, b: Question) => (randomValues.get(a.id) ?? 0) - (randomValues.get(b.id) ?? 0);
     }, [questionsInNotebook, shuffleTrigger]);
-
+    
     const sortedQuestions = useMemo(() => {
         let questionsToProcess = [...questionsInNotebook];
+
+        if (notebook === 'all' && sourceFilter !== 'all') {
+            questionsToProcess = questionsToProcess.filter(q => q.source?.id === sourceFilter);
+        }
 
         if (showWrongOnly) {
             const answeredIncorrectlyIds = new Set(
@@ -777,21 +804,78 @@ export const NotebookDetailView: React.FC<{
             return groupToSort;
         };
         
+        let sortedGroup;
         if (notebook === 'all' && prioritizeApostilas) {
             const apostilaQuestions = questionsToProcess.filter(q => q.source?.title.startsWith('(Apostila)'));
             const otherQuestions = questionsToProcess.filter(q => !q.source?.title.startsWith('(Apostila)'));
-            return [...sortGroup(apostilaQuestions), ...sortGroup(otherQuestions)];
+            sortedGroup = [...sortGroup(apostilaQuestions), ...sortGroup(otherQuestions)];
+        } else {
+            sortedGroup = sortGroup(questionsToProcess);
         }
-        return sortGroup(questionsToProcess);
+        
+        return sortedGroup;
 
-    }, [questionsInNotebook, questionSortOrder, prioritizeApostilas, notebook, stableRandomSort, showWrongOnly, appData.userQuestionAnswers, currentUser.id, notebookId, showUnansweredInAnyNotebook, difficultyFilter, questionErrorRates, difficultyThresholds]);
+    }, [questionsInNotebook, questionSortOrder, prioritizeApostilas, notebook, stableRandomSort, showWrongOnly, appData.userQuestionAnswers, currentUser.id, notebookId, showUnansweredInAnyNotebook, difficultyFilter, questionErrorRates, difficultyThresholds, sourceFilter]);
 
     const currentQuestionIndex = useMemo(() => {
-        if (!activeQuestionId || sortedQuestions.length === 0) return 0;
+        if (!activeQuestionId) return 0;
         const index = sortedQuestions.findIndex(q => q.id === activeQuestionId);
-        if (index > -1) return index;
-        return 0;
+        return index > -1 ? index : 0;
     }, [activeQuestionId, sortedQuestions]);
+    
+    const preservedIndexRef = useRef<number | null>(null);
+
+    useEffect(() => {
+        if (preservedIndexRef.current !== null && sortedQuestions.length > 0) {
+            const newIndex = Math.min(preservedIndexRef.current, sortedQuestions.length - 1);
+            if (sortedQuestions[newIndex]) {
+                setActiveQuestionId(sortedQuestions[newIndex].id);
+            }
+            preservedIndexRef.current = null;
+        } else if (sortedQuestions.length > 0 && !sortedQuestions.some(q => q.id === activeQuestionId)) {
+            // If the current active question is no longer in the list, reset to the first one
+            setActiveQuestionId(sortedQuestions[0].id);
+        } else if (sortedQuestions.length === 0) {
+            setActiveQuestionId(null);
+        }
+    }, [sortedQuestions, activeQuestionId]);
+
+
+    const handleSortChange = (newSort: typeof questionSortOrder) => {
+        preservedIndexRef.current = currentQuestionIndex;
+        setQuestionSortOrder(newSort);
+        if (newSort === 'random') {
+            setShuffleTrigger(c => c + 1);
+        }
+    };
+
+    const handleFilterChange = () => {
+        preservedIndexRef.current = 0; // Reset index when filters change
+    };
+    
+    const handleDifficultyFilterChange = (newDifficulty: typeof difficultyFilter) => {
+        handleFilterChange();
+        setDifficultyFilter(prev => (prev === newDifficulty ? 'all' : newDifficulty));
+    };
+
+    const handleShowWrongOnlyChange = () => {
+        handleFilterChange();
+        const isTurningOn = !showWrongOnly;
+        setShowWrongOnly(isTurningOn);
+        if (isTurningOn) setShowUnansweredInAnyNotebook(false);
+    };
+
+    const handleShowUnansweredChange = () => {
+        handleFilterChange();
+        const isTurningOn = !showUnansweredInAnyNotebook;
+        setShowUnansweredInAnyNotebook(isTurningOn);
+        if (isTurningOn) setShowWrongOnly(false);
+    };
+    
+    const handleSourceFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        handleFilterChange();
+        setSourceFilter(e.target.value);
+    };
 
     const currentQuestion = sortedQuestions[currentQuestionIndex];
 
@@ -819,6 +903,9 @@ export const NotebookDetailView: React.FC<{
     
     useEffect(() => {
         if (!currentQuestion) return;
+        
+        const isAnswered = userAnswers.has(currentQuestion.id);
+        
         const savedAnswer = userAnswers.get(currentQuestion.id);
         if (savedAnswer) {
             const correct = savedAnswer.attempts.includes(currentQuestion.correctAnswer);
@@ -978,24 +1065,52 @@ export const NotebookDetailView: React.FC<{
             contentTitle={commentingOnQuestion?.questionText?.substring(0, 50) + '...' || ''}
         />
 
-        {isStatsModalOpen && (
-            <NotebookStatsModal
-                isOpen={isStatsModalOpen}
-                onClose={() => setIsStatsModalOpen(false)}
-                notebook={notebook}
-                appData={appData}
-                allQuestions={allQuestions}
-                currentUser={currentUser}
-                onClearAnswers={async (questionIdsToClear) => {
-                    const success = await clearNotebookAnswers(currentUser.id, notebookId, questionIdsToClear.length > 0 ? questionIdsToClear : undefined);
+        <NotebookStatsModal
+            isOpen={isStatsModalOpen}
+            onClose={() => setIsStatsModalOpen(false)}
+            notebook={notebook}
+            appData={appData}
+            allQuestions={allQuestions}
+            currentUser={currentUser}
+            onStartClearing={() => setIsClearing(true)}
+            onClearAnswers={async (questionIdsToClear) => {
+                const success = await clearNotebookAnswers(currentUser.id, notebookId, questionIdsToClear.length > 0 ? questionIdsToClear : undefined);
+                if (success) {
+                    setAppData(prev => ({
+                        ...prev, 
+                        userQuestionAnswers: prev.userQuestionAnswers.filter(a => {
+                            const isForThisNotebook = a.user_id === currentUser.id && a.notebook_id === notebookId;
+                            if (!isForThisNotebook) return true;
+                            if (questionIdsToClear.length > 0) {
+                                return !questionIdsToClear.includes(a.question_id);
+                            }
+                            return false; 
+                        })
+                    }));
+                    if(sortedQuestions.length > 0) setActiveQuestionId(sortedQuestions[0].id);
+                } else {
+                    alert("Não foi possível limpar as respostas.");
+                }
+            }}
+        />
+        <ClearAnswersModal
+            isOpen={isClearing}
+            onClose={() => setIsClearing(false)}
+            notebook={notebook}
+            appData={appData}
+            allQuestions={allQuestions}
+            currentUser={currentUser}
+            onConfirm={(idsToClear) => {
+                const clearAndReset = async () => {
+                    const success = await clearNotebookAnswers(currentUser.id, notebookId, idsToClear.length > 0 ? idsToClear : undefined);
                     if (success) {
                         setAppData(prev => ({
                             ...prev, 
                             userQuestionAnswers: prev.userQuestionAnswers.filter(a => {
                                 const isForThisNotebook = a.user_id === currentUser.id && a.notebook_id === notebookId;
                                 if (!isForThisNotebook) return true;
-                                if (questionIdsToClear.length > 0) {
-                                    return !questionIdsToClear.includes(a.question_id);
+                                if (idsToClear.length > 0) {
+                                    return !idsToClear.includes(a.question_id);
                                 }
                                 return false; 
                             })
@@ -1004,9 +1119,13 @@ export const NotebookDetailView: React.FC<{
                     } else {
                         alert("Não foi possível limpar as respostas.");
                     }
-                }}
-            />
-        )}
+                };
+                clearAndReset();
+                setIsClearing(false);
+                setIsStatsModalOpen(false);
+            }}
+        />
+
         {isQuestionStatsModalOpen && (
              <QuestionStatsModal
                 isOpen={isQuestionStatsModalOpen}
@@ -1035,19 +1154,34 @@ export const NotebookDetailView: React.FC<{
             <div className="flex flex-wrap justify-between items-center gap-4 mb-4 p-4 bg-background-light dark:bg-background-dark rounded-lg border border-border-light dark:border-border-dark text-sm">
                 <div className="flex items-center gap-2">
                     <span className="font-semibold">Ordenar por:</span>
-                    <button title="Padrão" onClick={() => setQuestionSortOrder('default')} className={`px-3 py-1 rounded-md transition ${questionSortOrder === 'default' ? 'bg-primary-light text-white' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>Padrão</button>
-                    <button title="Temperatura" onClick={() => setQuestionSortOrder('temp')} className={`p-2 rounded-full transition ${questionSortOrder === 'temp' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🌡️</button>
-                    <button title="Mais Recentes" onClick={() => setQuestionSortOrder('date')} className={`p-2 rounded-full transition ${questionSortOrder === 'date' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🕐</button>
-                    <button title="Aleatória" onClick={() => { setQuestionSortOrder('random'); setShuffleTrigger(c => c + 1); }} className={`p-2 rounded-full transition ${questionSortOrder === 'random' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🔀</button>
+                    <button title="Padrão" onClick={() => handleSortChange('default')} className={`px-3 py-1 rounded-md transition ${questionSortOrder === 'default' ? 'bg-primary-light text-white' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>Padrão</button>
+                    <button title="Temperatura" onClick={() => handleSortChange('temp')} className={`p-2 rounded-full transition ${questionSortOrder === 'temp' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🌡️</button>
+                    <button title="Mais Recentes" onClick={() => handleSortChange('date')} className={`p-2 rounded-full transition ${questionSortOrder === 'date' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🕐</button>
+                    <button title="Aleatória" onClick={() => handleSortChange('random')} className={`p-2 rounded-full transition ${questionSortOrder === 'random' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🔀</button>
                 </div>
                  <div className="flex items-center gap-2">
                     <span className="font-semibold">Filtrar:</span>
                      {(['Fácil', 'Médio', 'Difícil'] as const).map(d => (
-                        <button key={d} onClick={() => setDifficultyFilter(prev => prev === d ? 'all' : d)} className={`px-3 py-1 rounded-md transition ${difficultyFilter === d ? 'bg-primary-light text-white' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>{d}</button>
+                        <button key={d} onClick={() => handleDifficultyFilterChange(d)} className={`px-3 py-1 rounded-md transition ${difficultyFilter === d ? 'bg-primary-light text-white' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>{d}</button>
                     ))}
-                    <button title="Mostrar apenas questões erradas" onClick={() => { const isTurningOn = !showWrongOnly; setShowWrongOnly(isTurningOn); if (isTurningOn) setShowUnansweredInAnyNotebook(false); }} className={`p-2 rounded-full transition ${showWrongOnly ? 'bg-red-500/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}> <XCircleIcon className={`w-5 h-5 ${showWrongOnly ? 'text-red-500' : 'text-gray-500'}`} /> </button>
-                    {notebook === 'all' && ( <button title="Mostrar apenas questões inéditas (não respondidas em nenhum caderno)" onClick={() => { const isTurningOn = !showUnansweredInAnyNotebook; setShowUnansweredInAnyNotebook(isTurningOn); if (isTurningOn) setShowWrongOnly(false); }} className={`flex items-center gap-1 px-3 py-1 rounded-md text-sm font-semibold transition ${showUnansweredInAnyNotebook ? 'bg-blue-500/20 text-blue-500' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}> <SparklesIcon className="w-4 h-4" /> Inéditas </button> )}
+                    <button title="Mostrar apenas questões erradas" onClick={handleShowWrongOnlyChange} className={`p-2 rounded-full transition ${showWrongOnly ? 'bg-red-500/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}> <XCircleIcon className={`w-5 h-5 ${showWrongOnly ? 'text-red-500' : 'text-gray-500'}`} /> </button>
+                    {notebook === 'all' && ( <button title="Mostrar apenas questões inéditas (não respondidas em nenhum caderno)" onClick={handleShowUnansweredChange} className={`flex items-center gap-1 px-3 py-1 rounded-md text-sm font-semibold transition ${showUnansweredInAnyNotebook ? 'bg-blue-500/20 text-blue-500' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}> <SparklesIcon className="w-4 h-4" /> Inéditas </button> )}
                 </div>
+                 {notebook === 'all' && (
+                    <div className="flex items-center gap-2">
+                        <span className="font-semibold">Fonte:</span>
+                        <select
+                            value={sourceFilter}
+                            onChange={handleSourceFilterChange}
+                            className="py-1 px-2 rounded-md bg-background-light dark:bg-background-dark border border-border-light dark:border-border-dark"
+                        >
+                            <option value="all">Todas as Fontes</option>
+                            {sourcesForFilter.map(source => (
+                                <option key={source.id} value={source.id}>{source.title}</option>
+                            ))}
+                        </select>
+                    </div>
+                )}
                 {notebook === 'all' && ( <div className="flex items-center gap-2"> <input type="checkbox" id="prioritizeApostilas" checked={prioritizeApostilas} onChange={e => setPrioritizeApostilas(e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-primary-light focus:ring-primary-light" /> <label htmlFor="prioritizeApostilas" className="font-semibold cursor-pointer">Priorizar (Apostila)</label> </div> )}
             </div>
             

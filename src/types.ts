@@ -292,6 +292,13 @@ export interface XpEvent {
     created_at: string;
 }
 
+// FIX: Added UserMood interface for the Contagem view.
+export interface UserMood {
+    user_id: string;
+    mood: string;
+    updated_at: string;
+}
+
 export interface AppData {
   users: User[];
   sources: Source[];
@@ -308,6 +315,8 @@ export interface AppData {
   userQuestionAnswers: UserQuestionAnswer[];
   userCaseStudyInteractions: UserCaseStudyInteraction[];
   xp_events: XpEvent[];
+  // FIX: Added userMoods to AppData for the Contagem view.
+  userMoods: UserMood[];
 }
 
 export interface StarRating {
