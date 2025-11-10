@@ -676,9 +676,16 @@ export const upsertUserQuestionAnswer = async (payload: Partial<UserQuestionAnsw
     return data;
 };
 
-export const clearNotebookAnswers = async (userId: string, notebookId: string): Promise<boolean> => {
+export const clearNotebookAnswers = async (userId: string, notebookId: string, questionIds?: string[]): Promise<boolean> => {
     if(!checkSupabase()) return false;
-    const { error } = await supabase!.from('user_question_answers').delete().match({ user_id: userId, notebook_id: notebookId });
+    
+    let query = supabase!.from('user_question_answers').delete().match({ user_id: userId, notebook_id: notebookId });
+
+    if (questionIds && questionIds.length > 0) {
+        query = query.in('question_id', questionIds);
+    }
+    
+    const { error } = await query;
     if(error) { console.error("Error clearing notebook answers:", error); return false; }
     return true;
 };

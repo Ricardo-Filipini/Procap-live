@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { MainContentProps } from '../../types';
-import { Question, Comment, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer } from '../../types';
+import { Question, Comment, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer, Source } from '../../types';
 import { CommentsModal } from '../shared/CommentsModal';
 import { Modal } from '../Modal';
 import { PlusIcon, LightBulbIcon, ChartBarSquareIcon, MagnifyingGlassIcon, TrashIcon, XCircleIcon, SparklesIcon } from '../Icons';
@@ -48,50 +48,72 @@ const CreateNotebookModal: React.FC<{
             
             let questionsPool = sourcesToUse.flatMap(s => s.questions);
 
-            if (excludeAnswered) {
-                const answeredQuestionIds = new Set(appData.userQuestionAnswers.filter(a => a.user_id === currentUser.id).map(a => a.question_id));
-                if (keepWrongAndFavorites) {
-                    const answeredIncorrectlyIds = new Set(
-                        appData.userQuestionAnswers
-                            .filter(a => a.user_id === currentUser.id && !a.is_correct_first_try)
-                            .map(a => a.question_id)
-                    );
-                    const favoritedQuestionIds = new Set(
-                        appData.userContentInteractions
-                            .filter(i => i.user_id === currentUser.id && i.content_type === 'question' && i.is_favorite)
-                            .map(i => i.content_id)
-                    );
-                    questionsPool = questionsPool.filter(q => 
-                        !answeredQuestionIds.has(q.id) || 
-                        answeredIncorrectlyIds.has(q.id) || 
-                        favoritedQuestionIds.has(q.id)
-                    );
-                } else {
-                    questionsPool = questionsPool.filter(q => !answeredQuestionIds.has(q.id));
+            let orderedQuestionsPool: Question[];
+
+            if (keepWrongAndFavorites) {
+                const answeredIncorrectlyIds = new Set(
+                    appData.userQuestionAnswers
+                        .filter(a => a.user_id === currentUser.id && !a.is_correct_first_try)
+                        .map(a => a.question_id)
+                );
+                const favoritedQuestionIds = new Set(
+                    appData.userContentInteractions
+                        .filter(i => i.user_id === currentUser.id && i.content_type === 'question' && i.is_favorite)
+                        .map(i => i.content_id)
+                );
+                const priorityIds = new Set([...answeredIncorrectlyIds, ...favoritedQuestionIds]);
+                
+                const priorityQuestions = questionsPool.filter(q => priorityIds.has(q.id));
+                let otherQuestions = questionsPool.filter(q => !priorityIds.has(q.id));
+    
+                if (excludeAnswered) {
+                    const answeredQuestionIds = new Set(appData.userQuestionAnswers.filter(a => a.user_id === currentUser.id).map(a => a.question_id));
+                    otherQuestions = otherQuestions.filter(q => !answeredQuestionIds.has(q.id));
+                }
+    
+                orderedQuestionsPool = [...priorityQuestions, ...otherQuestions];
+            } else {
+                orderedQuestionsPool = [...questionsPool];
+                if (excludeAnswered) {
+                    const answeredQuestionIds = new Set(appData.userQuestionAnswers.filter(a => a.user_id === currentUser.id).map(a => a.question_id));
+                    orderedQuestionsPool = orderedQuestionsPool.filter(q => !answeredQuestionIds.has(q.id));
                 }
             }
-
-            if (questionsPool.length === 0) {
+            
+            if (orderedQuestionsPool.length === 0) {
                 throw new Error("Nenhuma questão disponível com os filtros aplicados.");
             }
 
             let finalQuestionIds: string[];
             if (prompt.trim()) {
                 setStatusMessage("Filtrando questões com IA...");
-                const itemsToFilter = questionsPool.map(q => ({ id: q.id, text: q.questionText }));
+                const itemsToFilter = orderedQuestionsPool.map(q => ({ id: q.id, text: q.questionText }));
                 const relevantIds = await filterItemsByPrompt(prompt, itemsToFilter);
-                finalQuestionIds = relevantIds.length > 0 ? relevantIds : questionsPool.map(q => q.id); // Fallback to all if AI returns none
+                
+                if (relevantIds.length > 0) {
+                    const relevantIdSet = new Set(relevantIds);
+                    finalQuestionIds = orderedQuestionsPool.map(q => q.id).filter(id => relevantIdSet.has(id));
+                } else {
+                    finalQuestionIds = orderedQuestionsPool.map(q => q.id); 
+                }
             } else {
-                finalQuestionIds = questionsPool.map(q => q.id);
+                finalQuestionIds = orderedQuestionsPool.map(q => q.id);
+            }
+            
+            let questionIdsToSlice = finalQuestionIds;
+            if (!keepWrongAndFavorites) {
+                // Only shuffle if not prioritizing
+                questionIdsToSlice = finalQuestionIds.sort(() => 0.5 - Math.random());
             }
 
-            const shuffled = finalQuestionIds.sort(() => 0.5 - Math.random());
-            const sliced = shuffled.slice(0, questionCount);
+            const sliced = questionIdsToSlice.slice(0, questionCount);
 
             let finalName = name.trim();
             if (!finalName) {
                 setStatusMessage("Gerando nome com IA...");
-                const selectedQuestions = appData.sources.flatMap(s => s.questions).filter(q => sliced.includes(q.id));
+                // FIX: Define `allQuestions` from `appData` as it is not available in this component's scope.
+                const allQuestions = appData.sources.flatMap(s => s.questions);
+                const selectedQuestions = allQuestions.filter(q => sliced.includes(q.id));
                 finalName = await generateNotebookName(selectedQuestions);
             }
 
@@ -165,13 +187,11 @@ const CreateNotebookModal: React.FC<{
                         className="h-4 w-4 rounded border-gray-300 text-primary-light focus:ring-primary-light" />
                     <label htmlFor="exclude-answered" className="text-sm cursor-pointer">Não incluir questões já respondidas</label>
                 </div>
-                 {excludeAnswered && (
-                    <div className="flex items-center gap-2 pl-6">
-                        <input type="checkbox" id="keep-wrong-favorites" checked={keepWrongAndFavorites} onChange={e => setKeepWrongAndFavorites(e.target.checked)} 
-                            className="h-4 w-4 rounded border-gray-300 text-primary-light focus:ring-primary-light" />
-                        <label htmlFor="keep-wrong-favorites" className="text-sm cursor-pointer">Manter erradas e favoritas</label>
-                    </div>
-                )}
+                <div className="flex items-center gap-2">
+                    <input type="checkbox" id="keep-wrong-favorites" checked={keepWrongAndFavorites} onChange={e => setKeepWrongAndFavorites(e.target.checked)} 
+                        className="h-4 w-4 rounded border-gray-300 text-primary-light focus:ring-primary-light" />
+                    <label htmlFor="keep-wrong-favorites" className="text-sm cursor-pointer">Priorizar erradas e favoritas</label>
+                </div>
                 <button onClick={handleCreate} disabled={isLoading} className="mt-4 w-full bg-primary-light text-white font-bold py-2 px-4 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center h-10">
                     {isLoading ? (
                          <div className="flex items-center">
@@ -267,24 +287,117 @@ const QuestionStatsModal: React.FC<{
     );
 };
 
+const ClearAnswersModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    notebook: QuestionNotebook | 'all';
+    appData: MainContentProps['appData'];
+    allQuestions: (Question & { source?: any })[];
+    onConfirm: (questionIdsToClear: string[]) => void;
+}> = ({ isOpen, onClose, notebook, appData, allQuestions, onConfirm }) => {
+    
+    const notebookQuestions = useMemo(() => {
+        if (notebook === 'all') return [];
+        const questionIds: string[] = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id): id is string => typeof id === 'string') : [];
+        const idSet = new Set(questionIds);
+        return allQuestions.filter(q => idSet.has(q.id));
+    }, [notebook, allQuestions]);
+
+    const sourcesInNotebook = useMemo(() => {
+        const sourceMap = new Map<string, { title: string; count: number; questionIds: string[] }>();
+        notebookQuestions.forEach(q => {
+            if (q.source) {
+                const entry = sourceMap.get(q.source.id) || { title: q.source.title, count: 0, questionIds: [] };
+                entry.count++;
+                entry.questionIds.push(q.id);
+                sourceMap.set(q.source.id, entry);
+            }
+        });
+        return Array.from(sourceMap.entries()).map(([id, data]) => ({ id, ...data }));
+    }, [notebookQuestions]);
+
+    const [selectedSourceIds, setSelectedSourceIds] = useState<Set<string>>(new Set());
+
+    useEffect(() => {
+        if (isOpen) {
+            setSelectedSourceIds(new Set(sourcesInNotebook.map(s => s.id)));
+        }
+    }, [isOpen, sourcesInNotebook]);
+    
+    const handleToggle = (sourceId: string) => {
+        setSelectedSourceIds(prev => {
+            const next = new Set(prev);
+            if (next.has(sourceId)) next.delete(sourceId);
+            else next.add(sourceId);
+            return next;
+        });
+    };
+    
+    const handleConfirm = () => {
+        const questionIdsToClear = sourcesInNotebook
+            .filter(s => selectedSourceIds.has(s.id))
+            .flatMap(s => s.questionIds);
+        onConfirm(questionIdsToClear);
+    };
+
+    if (notebook === 'all') {
+        return (
+            <Modal isOpen={isOpen} onClose={onClose} title="Limpar Todas as Respostas">
+                <p>Tem certeza que deseja limpar TODAS as suas respostas do caderno "Todas as Questões"?</p>
+                 <div className="flex justify-end gap-4 mt-4">
+                    <button onClick={onClose} className="px-4 py-2 rounded-md bg-gray-200 dark:bg-gray-700">Cancelar</button>
+                    <button onClick={() => onConfirm([])} className="px-4 py-2 rounded-md bg-red-600 text-white">Confirmar Limpeza Total</button>
+                </div>
+            </Modal>
+        );
+    }
+    
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="Limpar Respostas do Caderno">
+            <p className="text-sm mb-4">Selecione as fontes das quais você deseja limpar suas respostas neste caderno. As respostas de questões de outras fontes não serão afetadas.</p>
+            <div className="space-y-2 max-h-60 overflow-y-auto border-y border-border-light dark:border-border-dark py-2 my-2">
+                {sourcesInNotebook.map(source => (
+                     <div key={source.id} className="flex items-center gap-2 p-2 rounded-md hover:bg-background-light dark:hover:bg-background-dark">
+                        <input
+                            type="checkbox"
+                            id={`clear-source-${source.id}`}
+                            checked={selectedSourceIds.has(source.id)}
+                            onChange={() => handleToggle(source.id)}
+                            className="h-4 w-4 rounded border-gray-300 text-primary-light focus:ring-primary-light"
+                        />
+                        <label htmlFor={`clear-source-${source.id}`} className="flex-grow cursor-pointer flex justify-between">
+                            <span>{source.title}</span>
+                            <span className="text-xs text-gray-500">{source.count} questões</span>
+                        </label>
+                    </div>
+                ))}
+            </div>
+             <div className="flex justify-end gap-4 mt-4">
+                <button onClick={onClose} className="px-4 py-2 rounded-md bg-gray-200 dark:bg-gray-700">Cancelar</button>
+                <button onClick={handleConfirm} disabled={selectedSourceIds.size === 0} className="px-4 py-2 rounded-md bg-red-600 text-white disabled:opacity-50">Limpar Selecionadas</button>
+            </div>
+        </Modal>
+    );
+};
+
+
 const NotebookStatsModal: React.FC<{
     isOpen: boolean;
     onClose: () => void;
     notebook: QuestionNotebook | 'all';
     appData: MainContentProps['appData'];
+    allQuestions: (Question & { source?: any })[];
     currentUser: MainContentProps['currentUser'];
-    onClearAnswers: () => void;
-}> = ({ isOpen, onClose, notebook, appData, currentUser, onClearAnswers }) => {
+    onClearAnswers: (questionIdsToClear: string[]) => void;
+}> = ({ isOpen, onClose, notebook, appData, allQuestions, currentUser, onClearAnswers }) => {
+    const [isClearing, setIsClearing] = useState(false);
     const notebookId = notebook === 'all' ? 'all_questions' : notebook.id;
     const notebookName = notebook === 'all' ? "Todas as Questões" : notebook.name;
+    
     const questionIds = useMemo(() => {
         if (notebook === 'all') {
             return new Set(appData.sources.flatMap(s => s.questions.map(q => q.id)));
         }
-        // FIX: In `questionsInNotebook` useMemo, used `Array.isArray` to safely handle `notebook.question_ids` and prevent potential runtime errors, improving type safety.
-        // FIX: Use a type guard to safely filter notebook.question_ids, ensuring it's a clean array of strings.
-        // FIX: Explicitly type 'id' as 'unknown' to satisfy stricter type checking for the type guard.
-        // FIX: Explicitly typing 'id' as 'any' to resolve TS error. The type guard ensures safety.
         const ids = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id: any): id is string => typeof id === 'string') : [];
         return new Set(ids);
     }, [notebook, appData.sources]);
@@ -298,7 +411,6 @@ const NotebookStatsModal: React.FC<{
     const leaderboardData = useMemo(() => {
         const userScores: { [userId: string]: { correct: number } } = {};
 
-        // Correctly filter for the specific notebook context, whether it's 'all_questions' or a UUID.
         appData.userQuestionAnswers
             .filter(ans => String(ans.notebook_id) === notebookId)
             .forEach(ans => {
@@ -329,53 +441,69 @@ const NotebookStatsModal: React.FC<{
     const progress = totalQuestions > 0 ? (questionsAnswered / totalQuestions) * 100 : 0;
     
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={`Estatísticas: ${notebookName}`}>
-            <div className="space-y-4 p-2">
-                <div>
-                    <h3 className="text-lg font-semibold mb-2">Seu Progresso</h3>
-                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-4">
-                        <div className="bg-primary-light h-4 rounded-full text-white text-xs flex items-center justify-center" style={{ width: `${progress}%` }}>
-                            {progress.toFixed(0)}%
+        <>
+            <ClearAnswersModal
+                isOpen={isClearing}
+                onClose={() => setIsClearing(false)}
+                notebook={notebook}
+                // FIX: Pass the required `appData` prop to `ClearAnswersModal`.
+                appData={appData}
+                allQuestions={allQuestions}
+                onConfirm={(idsToClear) => {
+                    onClearAnswers(idsToClear);
+                    setIsClearing(false);
+                    onClose();
+                }}
+            />
+            <Modal isOpen={isOpen} onClose={onClose} title={`Estatísticas: ${notebookName}`}>
+                <div className="space-y-4 p-2">
+                    <div>
+                        <h3 className="text-lg font-semibold mb-2">Seu Progresso</h3>
+                        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-4">
+                            <div className="bg-primary-light h-4 rounded-full text-white text-xs flex items-center justify-center" style={{ width: `${progress}%` }}>
+                                {progress.toFixed(0)}%
+                            </div>
+                        </div>
+                        <p className="text-sm text-gray-500 text-right mt-1">{questionsAnswered} de {totalQuestions} questões respondidas</p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-background-light dark:bg-background-dark p-4 rounded-lg text-center">
+                            <p className="text-lg font-semibold">Acertos na 1ª Tentativa</p>
+                            <p className="text-3xl font-bold text-green-500">{correctFirstTry}</p>
+                        </div>
+                        <div className="bg-background-light dark:bg-background-dark p-4 rounded-lg text-center">
+                            <p className="text-lg font-semibold">Aproveitamento</p>
+                            <p className="text-3xl font-bold text-secondary-light dark:text-secondary-dark">{accuracy.toFixed(1)}%</p>
                         </div>
                     </div>
-                    <p className="text-sm text-gray-500 text-right mt-1">{questionsAnswered} de {totalQuestions} questões respondidas</p>
-                </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-background-light dark:bg-background-dark p-4 rounded-lg text-center">
-                        <p className="text-lg font-semibold">Acertos na 1ª Tentativa</p>
-                        <p className="text-3xl font-bold text-green-500">{correctFirstTry}</p>
+                    <div className="pt-4 border-t border-border-light dark:border-border-dark">
+                        <h3 className="text-lg font-semibold mb-2">Leaderboard do Caderno</h3>
+                        <div className="max-h-40 overflow-y-auto space-y-2">
+                            {leaderboardData.length > 0 ? leaderboardData.map((entry, index) => (
+                                <div key={entry.userId} className={`flex items-center justify-between p-2 rounded-md ${entry.userId === currentUser.id ? 'bg-primary-light/10' : 'bg-background-light dark:bg-background-dark'}`}>
+                                    <p><span className="font-bold w-6 inline-block">{index + 1}.</span> {entry.pseudonym}</p>
+                                    <p className="font-bold">{entry.score} acertos</p>
+                                </div>
+                            )) : <p className="text-sm text-gray-500">Ninguém respondeu a este caderno ainda.</p>}
+                        </div>
                     </div>
-                    <div className="bg-background-light dark:bg-background-dark p-4 rounded-lg text-center">
-                        <p className="text-lg font-semibold">Aproveitamento</p>
-                        <p className="text-3xl font-bold text-secondary-light dark:text-secondary-dark">{accuracy.toFixed(1)}%</p>
+
+                    <div className="pt-4 border-t border-border-light dark:border-border-dark">
+                        <button 
+                            onClick={() => setIsClearing(true)}
+                            className="w-full bg-red-600 text-white font-bold py-2 px-4 rounded-md hover:bg-red-700 transition flex items-center justify-center gap-2"
+                        >
+                        <TrashIcon className="w-5 h-5"/> Limpar Respostas e Recomeçar
+                        </button>
                     </div>
                 </div>
-
-                <div className="pt-4 border-t border-border-light dark:border-border-dark">
-                     <h3 className="text-lg font-semibold mb-2">Leaderboard do Caderno</h3>
-                     <div className="max-h-40 overflow-y-auto space-y-2">
-                        {leaderboardData.length > 0 ? leaderboardData.map((entry, index) => (
-                            <div key={entry.userId} className={`flex items-center justify-between p-2 rounded-md ${entry.userId === currentUser.id ? 'bg-primary-light/10' : 'bg-background-light dark:bg-background-dark'}`}>
-                                <p><span className="font-bold w-6 inline-block">{index + 1}.</span> {entry.pseudonym}</p>
-                                <p className="font-bold">{entry.score} acertos</p>
-                            </div>
-                        )) : <p className="text-sm text-gray-500">Ninguém respondeu a este caderno ainda.</p>}
-                     </div>
-                </div>
-
-                <div className="pt-4 border-t border-border-light dark:border-border-dark">
-                    <button 
-                        onClick={onClearAnswers}
-                        className="w-full bg-red-600 text-white font-bold py-2 px-4 rounded-md hover:bg-red-700 transition flex items-center justify-center gap-2"
-                    >
-                       <TrashIcon className="w-5 h-5"/> Limpar Respostas e Recomeçar
-                    </button>
-                </div>
-            </div>
-        </Modal>
+            </Modal>
+        </>
     );
 };
+
 
 export const NotebookGridView: React.FC<{
     notebooks: QuestionNotebook[];
@@ -396,6 +524,8 @@ export const NotebookGridView: React.FC<{
             .map(i => i.content_id);
     }, [appData.userContentInteractions, currentUser.id]);
     
+    const allQuestions = appData.sources.flatMap(s => s.questions);
+
     const renderNotebook = (notebook: QuestionNotebook | 'all' | 'new' | 'favorites') => {
         if (notebook === 'new') {
             return (
@@ -494,7 +624,7 @@ export const NotebookGridView: React.FC<{
 
 export const NotebookDetailView: React.FC<{
     notebook: QuestionNotebook | 'all';
-    allQuestions: (Question & { user_id: string, created_at: string})[];
+    allQuestions: (Question & { user_id: string, created_at: string, source?: any})[];
     appData: MainContentProps['appData'];
     setAppData: MainContentProps['setAppData'];
     currentUser: MainContentProps['currentUser'];
@@ -547,7 +677,7 @@ export const NotebookDetailView: React.FC<{
         setUserAnswers(answerMap);
     }, [appData.userQuestionAnswers, currentUser.id, notebookId]);
     
-    const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+    const [activeQuestionId, setActiveQuestionId] = useState<string | null>(null);
     const [selectedOption, setSelectedOption] = useState<string | null>(null);
     const [wrongAnswers, setWrongAnswers] = useState<Set<string>>(new Set());
     const [isCompleted, setIsCompleted] = useState(false);
@@ -556,22 +686,51 @@ export const NotebookDetailView: React.FC<{
     const [commentingOnQuestion, setCommentingOnQuestion] = useState<Question | null>(null);
     const [fontSize, setFontSize] = useState(1);
     
-    const [sortedQuestions, setSortedQuestions] = useState<(Question & { user_id: string, created_at: string})[]>([]);
     const [questionSortOrder, setQuestionSortOrder] = useState<'default' | 'temp' | 'date' | 'random'>('default');
     const [shuffleTrigger, setShuffleTrigger] = useState(0);
     const [prioritizeApostilas, setPrioritizeApostilas] = useState(notebook === 'all');
     const [showWrongOnly, setShowWrongOnly] = useState(false);
-    const prevShowWrongOnlyRef = useRef(showWrongOnly);
     const [showUnansweredInAnyNotebook, setShowUnansweredInAnyNotebook] = useState(false);
-    const prevShowUnansweredRef = useRef(showUnansweredInAnyNotebook);
+    const [difficultyFilter, setDifficultyFilter] = useState<'all' | 'Fácil' | 'Médio' | 'Difícil'>('all');
 
     const questionsInNotebook = useMemo(() => {
         if (notebook === 'all') return allQuestions;
-        // FIX: Safely filter question_ids from untyped source by casting to any[] and using a type guard to prevent type errors.
-        const questionIds: string[] = Array.isArray(notebook.question_ids) ? (notebook.question_ids as any[]).filter((id: any): id is string => typeof id === 'string') : [];
+        const questionIds: string[] = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id): id is string => typeof id === 'string') : [];
         const idSet = new Set(questionIds);
         return allQuestions.filter(q => idSet.has(q.id));
     }, [notebook, allQuestions]);
+
+    const questionErrorRates = useMemo(() => {
+        const stats = new Map<string, { total: number; correct: number }>();
+        appData.userQuestionAnswers.forEach(ans => {
+            const stat = stats.get(ans.question_id) || { total: 0, correct: 0 };
+            stat.total++;
+            if (ans.is_correct_first_try) stat.correct++;
+            stats.set(ans.question_id, stat);
+        });
+        const rates = new Map<string, number>();
+        stats.forEach((stat, qId) => {
+            if (stat.total > 0) rates.set(qId, 1 - (stat.correct / stat.total));
+        });
+        return rates;
+    }, [appData.userQuestionAnswers]);
+    
+    const difficultyThresholds = useMemo(() => {
+        const ratesInNotebook = questionsInNotebook
+            .map(q => questionErrorRates.get(q.id) ?? 0.5)
+            .sort((a, b) => a - b);
+        
+        if (ratesInNotebook.length === 0) {
+            return { easy: 0.3, medium: 0.7 };
+        }
+        
+        const easyIndex = Math.floor(ratesInNotebook.length * 0.30);
+        const mediumIndex = Math.floor(ratesInNotebook.length * 0.70);
+        return {
+            easy: ratesInNotebook[easyIndex] ?? 0.3,
+            medium: ratesInNotebook[mediumIndex] ?? 0.7
+        };
+    }, [questionsInNotebook, questionErrorRates]);
 
     const stableRandomSort = useMemo(() => {
         const randomValues = new Map<string, number>();
@@ -579,140 +738,88 @@ export const NotebookDetailView: React.FC<{
         return (a: Question, b: Question) => (randomValues.get(a.id) ?? 0) - (randomValues.get(b.id) ?? 0);
     }, [questionsInNotebook, shuffleTrigger]);
 
-    const prevQuestionSortOrder = useRef(questionSortOrder);
-    const currentQuestion = sortedQuestions[currentQuestionIndex];
-    const displayedQuestionIdRef = useRef<string | null>(null);
-
-    useEffect(() => {
-        displayedQuestionIdRef.current = currentQuestion?.id ?? null;
-    }, [currentQuestion]);
-
-
-    useEffect(() => {
-        const enablingWrongOnly = !prevShowWrongOnlyRef.current && showWrongOnly;
-        prevShowWrongOnlyRef.current = showWrongOnly;
-
-        const enablingUnanswered = !prevShowUnansweredRef.current && showUnansweredInAnyNotebook;
-        prevShowUnansweredRef.current = showUnansweredInAnyNotebook;
-
-        const sortChanged = prevQuestionSortOrder.current !== questionSortOrder;
-        prevQuestionSortOrder.current = questionSortOrder;
-
+    const sortedQuestions = useMemo(() => {
         let questionsToProcess = [...questionsInNotebook];
-        const currentId = displayedQuestionIdRef.current;
 
         if (showWrongOnly) {
             const answeredIncorrectlyIds = new Set(
                 appData.userQuestionAnswers
-                    .filter(ans => ans.user_id === currentUser.id && ans.notebook_id === notebookId)
-                    .filter(ans => !ans.is_correct_first_try)
+                    .filter(ans => ans.user_id === currentUser.id && ans.notebook_id === notebookId && !ans.is_correct_first_try)
                     .map(ans => ans.question_id)
             );
-            questionsToProcess = questionsToProcess.filter(q => 
-                answeredIncorrectlyIds.has(q.id) || q.id === currentId
-            );
+            questionsToProcess = questionsToProcess.filter(q => answeredIncorrectlyIds.has(q.id));
         } else if (notebook === 'all' && showUnansweredInAnyNotebook) {
-            const answeredInAnyNotebookIds = new Set(
-                appData.userQuestionAnswers
-                    .filter(ans => ans.user_id === currentUser.id)
-                    .map(ans => ans.question_id)
-            );
-            questionsToProcess = questionsToProcess.filter(q => 
-                !answeredInAnyNotebookIds.has(q.id) || q.id === currentId
-            );
+            const answeredInAnyNotebookIds = new Set(appData.userQuestionAnswers.filter(ans => ans.user_id === currentUser.id).map(ans => ans.question_id));
+            questionsToProcess = questionsToProcess.filter(q => !answeredInAnyNotebookIds.has(q.id));
+        }
+        
+        if (difficultyFilter !== 'all') {
+            questionsToProcess = questionsToProcess.filter(q => {
+                const errorRate = questionErrorRates.get(q.id) ?? 0.5;
+                if (difficultyFilter === 'Fácil') return errorRate <= difficultyThresholds.easy;
+                if (difficultyFilter === 'Médio') return errorRate > difficultyThresholds.easy && errorRate <= difficultyThresholds.medium;
+                if (difficultyFilter === 'Difícil') return errorRate > difficultyThresholds.medium;
+                return true;
+            });
         }
 
         const sortGroup = (group: (Question & { user_id: string, created_at: string})[]) => {
-            const groupToSort = [...group]; // Create a mutable copy to sort
+            const groupToSort = [...group];
             switch (questionSortOrder) {
-                case 'temp':
-                    groupToSort.sort((a, b) => (b.hot_votes - b.cold_votes) - (a.hot_votes - a.cold_votes));
-                    break;
-                case 'date':
-                    groupToSort.sort((a, b) => new Date(b.source?.created_at || 0).getTime() - new Date(a.source?.created_at || 0).getTime());
-                    break;
-                case 'random':
-                    groupToSort.sort(stableRandomSort);
-                    break;
+                case 'temp': groupToSort.sort((a, b) => (b.hot_votes - b.cold_votes) - (a.hot_votes - a.cold_votes)); break;
+                case 'date': groupToSort.sort((a, b) => new Date(b.source?.created_at || 0).getTime() - new Date(a.source?.created_at || 0).getTime()); break;
+                case 'random': groupToSort.sort(stableRandomSort); break;
                 case 'default':
                 default:
                     if (notebook !== 'all') {
-                        // FIX: Safely filter question_ids from untyped source by casting to any[] and using a type guard to prevent type errors.
-                        const questionIds: string[] = Array.isArray(notebook.question_ids) ? (notebook.question_ids as any[]).filter((id: any): id is string => typeof id === 'string') : [];
+                        const questionIds: string[] = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id): id is string => typeof id === 'string') : [];
                         const orderMap = new Map(questionIds.map((id, index) => [id, index]));
-                        groupToSort.sort((a: Question, b: Question) => {
-                            const orderA = orderMap.get(a.id) ?? Infinity;
-                            const orderB = orderMap.get(b.id) ?? Infinity;
-                            if (orderA < orderB) return -1;
-                            if (orderA > orderB) return 1;
-                            return 0;
-                        });
+                        groupToSort.sort((a,b) => (orderMap.get(a.id) ?? Infinity) - (orderMap.get(b.id) ?? Infinity));
                     }
                     break;
             }
             return groupToSort;
         };
         
-        let finalSortedQuestions;
         if (notebook === 'all' && prioritizeApostilas) {
             const apostilaQuestions = questionsToProcess.filter(q => q.source?.title.startsWith('(Apostila)'));
             const otherQuestions = questionsToProcess.filter(q => !q.source?.title.startsWith('(Apostila)'));
+            return [...sortGroup(apostilaQuestions), ...sortGroup(otherQuestions)];
+        }
+        return sortGroup(questionsToProcess);
+
+    }, [questionsInNotebook, questionSortOrder, prioritizeApostilas, notebook, stableRandomSort, showWrongOnly, appData.userQuestionAnswers, currentUser.id, notebookId, showUnansweredInAnyNotebook, difficultyFilter, questionErrorRates, difficultyThresholds]);
+
+    const currentQuestionIndex = useMemo(() => {
+        if (!activeQuestionId || sortedQuestions.length === 0) return 0;
+        const index = sortedQuestions.findIndex(q => q.id === activeQuestionId);
+        if (index > -1) return index;
+        return 0;
+    }, [activeQuestionId, sortedQuestions]);
+
+    const currentQuestion = sortedQuestions[currentQuestionIndex];
+
+    useEffect(() => {
+        if (sortedQuestions.length > 0) {
+            const idToFocus = questionIdToFocus;
+            const indexToFocus = idToFocus ? sortedQuestions.findIndex(q => q.id === idToFocus) : -1;
             
-            const sortedApostila = sortGroup(apostilaQuestions);
-            const sortedOthers = sortGroup(otherQuestions);
-
-            finalSortedQuestions = [...sortedApostila, ...sortedOthers];
-        } else {
-            finalSortedQuestions = sortGroup(questionsToProcess);
-        }
-        
-        const previousQuestionId = currentQuestion?.id;
-        setSortedQuestions(finalSortedQuestions);
-        
-        if (enablingWrongOnly || enablingUnanswered) {
-            setCurrentQuestionIndex(0);
-        } else if (sortChanged) {
-            const boundedIndex = Math.min(currentQuestionIndex, Math.max(0, finalSortedQuestions.length - 1));
-            if (boundedIndex !== currentQuestionIndex) {
-                setCurrentQuestionIndex(boundedIndex);
+            if (indexToFocus !== -1) {
+                setActiveQuestionId(sortedQuestions[indexToFocus].id);
+            } else if (!activeQuestionId || !sortedQuestions.some(q => q.id === activeQuestionId)) {
+                setActiveQuestionId(sortedQuestions[0].id);
             }
         } else {
-            if (previousQuestionId) {
-                const newIndex = finalSortedQuestions.findIndex(q => q.id === previousQuestionId);
-                if (newIndex !== -1) {
-                    if (currentQuestionIndex !== newIndex) {
-                        setCurrentQuestionIndex(newIndex);
-                    }
-                } else {
-                    const boundedIndex = Math.min(currentQuestionIndex, Math.max(0, finalSortedQuestions.length - 1));
-                    setCurrentQuestionIndex(boundedIndex);
-                }
-            } else if (finalSortedQuestions.length > 0) {
-                 setCurrentQuestionIndex(0);
-            }
+            setActiveQuestionId(null);
         }
+    }, [sortedQuestions, questionIdToFocus]);
 
-    }, [questionsInNotebook, questionSortOrder, prioritizeApostilas, notebook, stableRandomSort, showWrongOnly, appData.userQuestionAnswers, currentUser.id, notebookId, showUnansweredInAnyNotebook]);
 
-
-    // Effect to handle navigation to a specific question
     useEffect(() => {
-        if (questionIdToFocus && sortedQuestions.length > 0) {
-            const index = sortedQuestions.findIndex(q => q.id === questionIdToFocus);
-            if (index !== -1) {
-                setCurrentQuestionIndex(index);
-            }
+        if (activeQuestionId) {
+            localStorage.setItem('procap_lastQuestionId', activeQuestionId);
         }
-    }, [questionIdToFocus, sortedQuestions]);
-
-    
-
-    // Save the current question ID to local storage whenever it changes.
-    useEffect(() => {
-        if (currentQuestion) {
-            localStorage.setItem('procap_lastQuestionId', currentQuestion.id);
-        }
-    }, [currentQuestion]);
+    }, [activeQuestionId]);
     
     useEffect(() => {
         if (!currentQuestion) return;
@@ -727,18 +834,14 @@ export const NotebookDetailView: React.FC<{
             setWrongAnswers(new Set());
             setIsCompleted(false);
         }
-    }, [currentQuestionIndex, currentQuestion, userAnswers]);
+    }, [activeQuestionId, currentQuestion, userAnswers]);
     
     useEffect(() => {
         if (setScreenContext && currentQuestion) {
             const context = `Questão: ${currentQuestion.questionText}\n\nOpções:\n- ${currentQuestion.options.join('\n- ')}`;
             setScreenContext(context);
         }
-        return () => {
-            if (setScreenContext) {
-                setScreenContext(null);
-            }
-        }
+        return () => { if (setScreenContext) setScreenContext(null); }
     }, [currentQuestion, setScreenContext]);
 
     const handleCommentAction = async (action: 'add' | 'vote', payload: any) => {
@@ -749,9 +852,7 @@ export const NotebookDetailView: React.FC<{
             updatedComments.push(newComment);
         } else if (action === 'vote') {
              const commentIndex = updatedComments.findIndex(c => c.id === payload.commentId);
-            if (commentIndex > -1) {
-                updatedComments[commentIndex][`${payload.voteType}_votes`] += 1;
-            }
+            if (commentIndex > -1) updatedComments[commentIndex][`${payload.voteType}_votes`] += 1;
         }
         
         const success = await updateContentComments('questions', commentingOnQuestion.id, updatedComments);
@@ -829,7 +930,7 @@ export const NotebookDetailView: React.FC<{
     const navigateQuestion = (direction: 1 | -1) => {
         const newIndex = currentQuestionIndex + direction;
         if (newIndex >= 0 && newIndex < sortedQuestions.length) {
-            setCurrentQuestionIndex(newIndex);
+            setActiveQuestionId(sortedQuestions[newIndex].id);
         }
     };
     
@@ -852,7 +953,7 @@ export const NotebookDetailView: React.FC<{
         }
 
         if (nextIndex !== -1) {
-            setCurrentQuestionIndex(nextIndex);
+            setActiveQuestionId(sortedQuestions[nextIndex].id);
         } else {
             alert("Parabéns! Você respondeu todas as questões deste caderno.");
         }
@@ -887,17 +988,25 @@ export const NotebookDetailView: React.FC<{
                 onClose={() => setIsStatsModalOpen(false)}
                 notebook={notebook}
                 appData={appData}
+                allQuestions={allQuestions}
                 currentUser={currentUser}
-                onClearAnswers={async () => {
-                    if(window.confirm("Tem certeza que deseja limpar suas respostas para este caderno? Seu progresso será zerado.")) {
-                        const success = await clearNotebookAnswers(currentUser.id, notebookId);
-                        if (success) {
-                            setAppData(prev => ({...prev, userQuestionAnswers: prev.userQuestionAnswers.filter(a => !(a.user_id === currentUser.id && a.notebook_id === notebookId)) }));
-                            setIsStatsModalOpen(false);
-                            setCurrentQuestionIndex(0);
-                        } else {
-                            alert("Não foi possível limpar as respostas.");
-                        }
+                onClearAnswers={async (questionIdsToClear) => {
+                    const success = await clearNotebookAnswers(currentUser.id, notebookId, questionIdsToClear.length > 0 ? questionIdsToClear : undefined);
+                    if (success) {
+                        setAppData(prev => ({
+                            ...prev, 
+                            userQuestionAnswers: prev.userQuestionAnswers.filter(a => {
+                                const isForThisNotebook = a.user_id === currentUser.id && a.notebook_id === notebookId;
+                                if (!isForThisNotebook) return true;
+                                if (questionIdsToClear.length > 0) {
+                                    return !questionIdsToClear.includes(a.question_id);
+                                }
+                                return false; 
+                            })
+                        }));
+                        if(sortedQuestions.length > 0) setActiveQuestionId(sortedQuestions[0].id);
+                    } else {
+                        alert("Não foi possível limpar as respostas.");
                     }
                 }}
             />
@@ -937,46 +1046,24 @@ export const NotebookDetailView: React.FC<{
                 </div>
                  <div className="flex items-center gap-2">
                     <span className="font-semibold">Filtrar:</span>
-                    <button title="Mostrar apenas questões erradas" onClick={() => {
-                        const isTurningOn = !showWrongOnly;
-                        setShowWrongOnly(isTurningOn);
-                        if (isTurningOn) {
-                            setShowUnansweredInAnyNotebook(false);
-                        }
-                    }} className={`p-2 rounded-full transition ${showWrongOnly ? 'bg-red-500/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>
-                        <XCircleIcon className={`w-5 h-5 ${showWrongOnly ? 'text-red-500' : 'text-gray-500'}`} />
-                    </button>
-                    {notebook === 'all' && (
-                        <button title="Mostrar apenas questões inéditas (não respondidas em nenhum caderno)" onClick={() => {
-                            const isTurningOn = !showUnansweredInAnyNotebook;
-                            setShowUnansweredInAnyNotebook(isTurningOn);
-                            if (isTurningOn) {
-                                setShowWrongOnly(false);
-                            }
-                        }} className={`flex items-center gap-1 px-3 py-1 rounded-md text-sm font-semibold transition ${showUnansweredInAnyNotebook ? 'bg-blue-500/20 text-blue-500' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>
-                            <SparklesIcon className="w-4 h-4" />
-                            Inéditas
-                        </button>
-                    )}
+                     {(['Fácil', 'Médio', 'Difícil'] as const).map(d => (
+                        <button key={d} onClick={() => setDifficultyFilter(prev => prev === d ? 'all' : d)} className={`px-3 py-1 rounded-md transition ${difficultyFilter === d ? 'bg-primary-light text-white' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>{d}</button>
+                    ))}
+                    <button title="Mostrar apenas questões erradas" onClick={() => { const isTurningOn = !showWrongOnly; setShowWrongOnly(isTurningOn); if (isTurningOn) setShowUnansweredInAnyNotebook(false); }} className={`p-2 rounded-full transition ${showWrongOnly ? 'bg-red-500/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}> <XCircleIcon className={`w-5 h-5 ${showWrongOnly ? 'text-red-500' : 'text-gray-500'}`} /> </button>
+                    {notebook === 'all' && ( <button title="Mostrar apenas questões inéditas (não respondidas em nenhum caderno)" onClick={() => { const isTurningOn = !showUnansweredInAnyNotebook; setShowUnansweredInAnyNotebook(isTurningOn); if (isTurningOn) setShowWrongOnly(false); }} className={`flex items-center gap-1 px-3 py-1 rounded-md text-sm font-semibold transition ${showUnansweredInAnyNotebook ? 'bg-blue-500/20 text-blue-500' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}> <SparklesIcon className="w-4 h-4" /> Inéditas </button> )}
                 </div>
-                {notebook === 'all' && (
-                    <div className="flex items-center gap-2">
-                        <input type="checkbox" id="prioritizeApostilas" checked={prioritizeApostilas} onChange={e => setPrioritizeApostilas(e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-primary-light focus:ring-primary-light" />
-                        <label htmlFor="prioritizeApostilas" className="font-semibold cursor-pointer">Priorizar (Apostila)</label>
-                    </div>
-                )}
+                {notebook === 'all' && ( <div className="flex items-center gap-2"> <input type="checkbox" id="prioritizeApostilas" checked={prioritizeApostilas} onChange={e => setPrioritizeApostilas(e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-primary-light focus:ring-primary-light" /> <label htmlFor="prioritizeApostilas" className="font-semibold cursor-pointer">Priorizar (Apostila)</label> </div> )}
             </div>
             
             <FontSizeControl fontSize={fontSize} setFontSize={setFontSize} className="mb-4" />
             <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5 mb-6">
-                <div className="bg-primary-light h-2.5 rounded-full" style={{ width: `${((currentQuestionIndex + 1) / sortedQuestions.length) * 100}%` }}></div>
+                <div className="bg-primary-light h-2.5 rounded-full" style={{ width: `${sortedQuestions.length > 0 ? ((currentQuestionIndex + 1) / sortedQuestions.length) * 100 : 0}%` }}></div>
             </div>
 
             <h2 className={`text-xl font-semibold mb-4 ${FONT_SIZE_CLASSES[fontSize]}`}>{currentQuestion?.questionText || 'Carregando enunciado...'}</h2>
 
             <div className={`space-y-3 ${FONT_SIZE_CLASSES[fontSize]}`}>
-                {/* FIX: Type 'unknown' is not assignable to type 'string'. Explicitly typed `option` as `string` to match the `Question` type definition. */}
-                {(currentQuestion?.options || []).map((option: string, index: number) => {
+                {(currentQuestion?.options as string[] || []).map((option: string, index: number) => {
                     const isSelected = selectedOption === option;
                     const isWrong = wrongAnswers.has(option);
                     const isCorrect = option === currentQuestion.correctAnswer;

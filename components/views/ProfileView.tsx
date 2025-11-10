@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
+import { AreaChart, Area, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
 import { MainContentProps, StudyPlan, XpEvent } from '../../types';
 import { User } from '../../types';
 import { UserCircleIcon, SparklesIcon } from '../Icons';
@@ -27,12 +27,63 @@ const CustomYAxisTick: React.FC<any> = ({ x, y, payload }) => {
 
 
 export const ProfileView: React.FC<ProfileViewProps> = ({ currentUser: user, appData, setAppData, updateUser, onNavigate }) => {
-    const [activeTab, setActiveTab] = useState<'geral' | 'topico' | 'caderno'>('geral');
-    const { 
-        correctAnswers = 0, 
-        questionsAnswered = 0, 
-        topicPerformance = {} 
-    } = user.stats || {};
+    const [activeTab, setActiveTab] = useState<'geral' | 'topico' | 'caderno' | 'evolucao'>('geral');
+    
+    const recalculatedStats = useMemo(() => {
+        const userAnswers = appData.userQuestionAnswers.filter(a => a.user_id === user.id);
+
+        const questionsAnswered = userAnswers.length;
+        const correctAnswers = userAnswers.filter(a => a.is_correct_first_try).length;
+
+        const topicPerformance: { [topic: string]: { correct: number; total: number } } = {};
+        // FIX: Reconstruct the questions map to include the `source` object, which is necessary to access `source.topic`.
+        const allQuestionsMap = new Map(appData.sources.flatMap(s => (s.questions || []).map(q => [q.id, { ...q, source: s }])));
+
+        userAnswers.forEach(answer => {
+            const question = allQuestionsMap.get(answer.question_id);
+            if (question) {
+                const topic = question.source?.topic || 'Geral';
+                if (!topicPerformance[topic]) {
+                    topicPerformance[topic] = { correct: 0, total: 0 };
+                }
+                topicPerformance[topic].total++;
+                if (answer.is_correct_first_try) {
+                    topicPerformance[topic].correct++;
+                }
+            }
+        });
+        
+        const dailyData = new Map<string, { correct: number, total: number }>();
+        userAnswers.forEach(answer => {
+            const date = new Date(answer.timestamp).toISOString().split('T')[0];
+            const dayStat = dailyData.get(date) || { correct: 0, total: 0 };
+            dayStat.total++;
+            if (answer.is_correct_first_try) {
+                dayStat.correct++;
+            }
+            dailyData.set(date, dayStat);
+        });
+
+        const dailyEvolutionData = Array.from(dailyData.entries())
+            .map(([date, stats]) => ({
+                date,
+                'Acerto (%)': stats.total > 0 ? (stats.correct / stats.total) * 100 : 0,
+            }))
+            .sort((a, b) => a.date.localeCompare(b.date))
+            .map(d => ({
+                ...d,
+                date: new Date(d.date).toLocaleDateString('pt-BR', {timeZone: 'UTC', day: '2-digit', month: '2-digit'}),
+            }));
+
+        return {
+            questionsAnswered,
+            correctAnswers,
+            topicPerformance,
+            dailyEvolutionData
+        };
+    }, [appData.userQuestionAnswers, appData.sources, user.id]);
+
+    const { correctAnswers, questionsAnswered, topicPerformance } = recalculatedStats;
     const overallAccuracy = questionsAnswered > 0 ? (correctAnswers / questionsAnswered) * 100 : 0;
     const pieData = [ { name: 'Corretas', value: correctAnswers }, { name: 'Incorretas', value: questionsAnswered - correctAnswers } ];
     const COLORS = ['#10b981', '#ef4444'];
@@ -46,7 +97,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ currentUser: user, app
                 total: data.total,
             }))
             .sort((a, b) => b.total - a.total)
-            .slice(0, 8); // Top 8 most answered topics for clarity
+            .slice(0, 8);
     }, [topicPerformance]);
 
     const notebookPerformance = useMemo(() => {
@@ -126,7 +177,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ currentUser: user, app
         };
 
         try {
-            const planContent = await getPersonalizedStudyPlan(user.stats, appData.userContentInteractions, content);
+            const planContent = await getPersonalizedStudyPlan(recalculatedStats, appData.userContentInteractions, content);
             if (!planContent || planContent.startsWith("Desculpe")) {
                 throw new Error("A IA não conseguiu gerar o plano de estudos.");
             }
@@ -138,11 +189,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ currentUser: user, app
 
                 setAppData(prev => ({ ...prev, studyPlans: [newPlan, ...prev.studyPlans] }));
 
-                // FIX: Defensively cast `user.xp` to a number before performing addition to prevent runtime errors with potentially malformed data.
                 const updatedUser = { ...user, xp: (Number(user.xp) || 0) + xpGained };
                 updateUser(updatedUser);
 
-                // Log the XP event
                 const newXpEvent = await logXpEvent(user.id, xpGained, 'STUDY_PLAN_GENERATED', newPlan.id);
                 if (newXpEvent) {
                     setAppData(prev => ({ ...prev, xp_events: [newXpEvent, ...prev.xp_events]}));
@@ -255,7 +304,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ currentUser: user, app
                             {([
                                 { key: 'geral', label: 'Visão Geral' },
                                 { key: 'topico', label: 'Por Tópico' },
-                                { key: 'caderno', label: 'Por Caderno' }
+                                { key: 'caderno', label: 'Por Caderno' },
+                                { key: 'evolucao', label: 'Evolução Diária' }
                             ] as const).map(tab => (
                                 <button
                                     key={tab.key}
@@ -338,6 +388,19 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ currentUser: user, app
                                     </BarChart>
                                 </ResponsiveContainer>
                                 ) : <p className="text-center text-gray-500 pt-10">Responda a questões em cadernos para ver seu desempenho.</p>
+                            )}
+                            {activeTab === 'evolucao' && (
+                                recalculatedStats.dailyEvolutionData.length > 1 ? (
+                                    <ResponsiveContainer width="100%" height={400}>
+                                        <AreaChart data={recalculatedStats.dailyEvolutionData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                                            <CartesianGrid strokeDasharray="3 3" />
+                                            <XAxis dataKey="date" />
+                                            <YAxis domain={[0, 100]} unit="%" />
+                                            <Tooltip formatter={(value: number) => [`${value.toFixed(1)}%`, 'Acerto']} />
+                                            <Area type="monotone" dataKey="Acerto (%)" stroke="#10b981" fill="#10b981" fillOpacity={0.3} />
+                                        </AreaChart>
+                                    </ResponsiveContainer>
+                                ) : <p className="text-center text-gray-500 pt-10">Responda a questões por alguns dias para ver sua evolução.</p>
                             )}
                         </div>
                     </div>
