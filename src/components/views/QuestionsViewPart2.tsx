@@ -685,6 +685,9 @@ export const NotebookDetailView: React.FC<{
     const [struckOptions, setStruckOptions] = useState<Set<string>>(new Set());
     const longPressTimerRef = useRef<number | null>(null);
     const wasLongPress = useRef(false);
+    const wasSwipe = useRef(false);
+    const touchStartX = useRef<number | null>(null);
+    const touchStartY = useRef<number | null>(null);
     
     const [questionSortOrder, setQuestionSortOrder] = useState<'temp' | 'date' | 'random'>('temp');
     const [shuffleTrigger, setShuffleTrigger] = useState(0);
@@ -944,21 +947,18 @@ export const NotebookDetailView: React.FC<{
     
     const handleSelectOption = (option: string) => {
         if (isCompleted || wrongAnswers.has(option)) return;
-    
-        // If a selection is attempted on a struck option, un-strike it and select it.
+
         if (struckOptions.has(option)) {
-            setStruckOptions(prev => {
-                const newSet = new Set(prev);
-                newSet.delete(option);
-                return newSet;
-            });
+            // A click on a struck option will unstrike it and select it.
+            // A second click will then trigger the confirmation logic below.
+            const newSet = new Set(struckOptions);
+            newSet.delete(option);
+            setStruckOptions(newSet);
             setSelectedOption(option);
+        } else if (selectedOption === option) {
+            handleConfirmAnswer();
         } else {
-            if (selectedOption === option) {
-                handleConfirmAnswer();
-            } else {
-                setSelectedOption(option);
-            }
+            setSelectedOption(option);
         }
     };
 
@@ -1040,18 +1040,47 @@ export const NotebookDetailView: React.FC<{
         });
     };
 
-    const handleTouchStart = (option: string) => {
+    const handleTouchStart = (option: string, e: React.TouchEvent) => {
         wasLongPress.current = false;
+        wasSwipe.current = false;
+        touchStartX.current = e.touches[0].clientX;
+        touchStartY.current = e.touches[0].clientY;
+        
         longPressTimerRef.current = window.setTimeout(() => {
             toggleStrike(option);
             wasLongPress.current = true;
         }, 500);
     };
 
-    const handleTouchEnd = () => {
+    const handleTouchEnd = (option: string, e: React.TouchEvent) => {
         if (longPressTimerRef.current) {
             clearTimeout(longPressTimerRef.current);
             longPressTimerRef.current = null;
+        }
+
+        if (wasLongPress.current) {
+            return;
+        }
+
+        if (touchStartX.current === null || touchStartY.current === null) {
+            return;
+        }
+
+        const touchEndX = e.changedTouches[0].clientX;
+        const touchEndY = e.changedTouches[0].clientY;
+        
+        const deltaX = touchEndX - touchStartX.current;
+        const deltaY = touchEndY - touchStartY.current;
+
+        touchStartX.current = null;
+        touchStartY.current = null;
+
+        const SWIPE_THRESHOLD = 50;
+        const SWIPE_VERTICAL_LIMIT = 50;
+
+        if (Math.abs(deltaX) > SWIPE_THRESHOLD && Math.abs(deltaY) < SWIPE_VERTICAL_LIMIT) {
+            wasSwipe.current = true;
+            toggleStrike(option);
         }
     };
     
@@ -1253,7 +1282,7 @@ export const NotebookDetailView: React.FC<{
                         cursorClass = "cursor-default";
                         if (isCorrect) {
                             optionClass = "bg-green-100 dark:bg-green-900/50 border-green-500";
-                        } else if (isWrongAttempt) {
+                        } else if (isWrongAttempt) { // Use isWrongAttempt which is `wrongAnswers.has(option)`
                             optionClass = "bg-red-100 dark:bg-red-900/50 border-red-500";
                         } else {
                             optionClass += " opacity-60";
@@ -1275,15 +1304,16 @@ export const NotebookDetailView: React.FC<{
                     return (
                         <div key={index} 
                             onClick={() => {
-                                if (wasLongPress.current) {
+                                if (wasLongPress.current || wasSwipe.current) {
                                     wasLongPress.current = false;
+                                    wasSwipe.current = false;
                                     return;
                                 }
                                 handleSelectOption(option);
                             }}
                              onContextMenu={(e) => { e.preventDefault(); toggleStrike(option); }}
-                             onTouchStart={() => handleTouchStart(option)}
-                             onTouchEnd={handleTouchEnd}
+                             onTouchStart={(e) => handleTouchStart(option, e)}
+                             onTouchEnd={(e) => handleTouchEnd(option, e)}
                              className={`p-4 border rounded-lg transition-colors ${optionClass} ${cursorClass}`}>
                              <span className={isStruck ? 'line-through' : ''}>{option}</span>
                         </div>
