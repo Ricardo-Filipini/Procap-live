@@ -682,8 +682,10 @@ export const NotebookDetailView: React.FC<{
     const [isQuestionStatsModalOpen, setIsQuestionStatsModalOpen] = useState(false);
     const [commentingOnQuestion, setCommentingOnQuestion] = useState<Question | null>(null);
     const [fontSize, setFontSize] = useState(1);
+    const [struckOptions, setStruckOptions] = useState<Set<string>>(new Set());
+    const longPressTimerRef = useRef<number | null>(null);
     
-    const [questionSortOrder, setQuestionSortOrder] = useState<'default' | 'temp' | 'date' | 'random'>('default');
+    const [questionSortOrder, setQuestionSortOrder] = useState<'temp' | 'date' | 'random'>('temp');
     const [shuffleTrigger, setShuffleTrigger] = useState(0);
     const [prioritizeApostilas, setPrioritizeApostilas] = useState(notebook === 'all');
     const [showWrongOnly, setShowWrongOnly] = useState(false);
@@ -785,7 +787,6 @@ export const NotebookDetailView: React.FC<{
                 case 'temp': groupToSort.sort((a, b) => (b.hot_votes - b.cold_votes) - (a.hot_votes - a.cold_votes)); break;
                 case 'date': groupToSort.sort((a, b) => new Date(b.source?.created_at || 0).getTime() - new Date(a.source?.created_at || 0).getTime()); break;
                 case 'random': groupToSort.sort(stableRandomSort); break;
-                case 'default':
                 default:
                     if (notebook !== 'all') {
                         const questionIds: string[] = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id): id is string => typeof id === 'string') : [];
@@ -909,6 +910,7 @@ export const NotebookDetailView: React.FC<{
             setSelectedOption(null);
             setWrongAnswers(new Set());
             setIsCompleted(false);
+            setStruckOptions(new Set());
         }
     }, [activeQuestionId, currentQuestion, userAnswers]);
     
@@ -938,19 +940,27 @@ export const NotebookDetailView: React.FC<{
             setCommentingOnQuestion(updatedItem);
         }
     };
+    
+    const handleSelectOption = (option: string) => {
+        if (isCompleted || wrongAnswers.has(option) || struckOptions.has(option)) return;
 
+        if (selectedOption === option) {
+            handleConfirmAnswer();
+        } else {
+            setSelectedOption(option);
+        }
+    };
 
-    const handleSelectOption = async (option: string) => {
-        if (isCompleted || wrongAnswers.has(option)) return;
+    const handleConfirmAnswer = async () => {
+        if (!selectedOption) return;
 
-        setSelectedOption(option);
-        const isCorrect = option === currentQuestion.correctAnswer;
+        const isCorrect = selectedOption === currentQuestion.correctAnswer;
         const newWrongAnswers = new Set(wrongAnswers);
         
         if (isCorrect) {
             setIsCompleted(true);
         } else {
-            newWrongAnswers.add(option);
+            newWrongAnswers.add(selectedOption);
             setWrongAnswers(newWrongAnswers);
             if (newWrongAnswers.size >= 3) {
                 setIsCompleted(true);
@@ -959,7 +969,7 @@ export const NotebookDetailView: React.FC<{
 
         const wasAnsweredBefore = userAnswers.has(currentQuestion.id);
         if ((isCorrect || newWrongAnswers.size >= 3) && !wasAnsweredBefore) {
-            const attempts: string[] = [...newWrongAnswers, option];
+            const attempts: string[] = [...newWrongAnswers, selectedOption];
             const isCorrectFirstTry = attempts.length === 1 && isCorrect;
             const xpMap = [10, 5, 2, 0];
             const xpGained = isCorrect ? (xpMap[wrongAnswers.size] || 0) : 0;
@@ -1000,6 +1010,35 @@ export const NotebookDetailView: React.FC<{
             const userWithNewStats = { ...currentUser, stats: newStats, xp: (Number(currentUser.xp) || 0) + xpGained };
             const finalUser = checkAndAwardAchievements(userWithNewStats, appData);
             updateUser(finalUser);
+        }
+    };
+
+    const toggleStrike = (option: string) => {
+        if (isCompleted) return;
+        setStruckOptions(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(option)) {
+                newSet.delete(option);
+            } else {
+                newSet.add(option);
+                if(selectedOption === option) {
+                    setSelectedOption(null);
+                }
+            }
+            return newSet;
+        });
+    };
+
+    const handleTouchStart = (option: string) => {
+        longPressTimerRef.current = window.setTimeout(() => {
+            toggleStrike(option);
+        }, 500);
+    };
+
+    const handleTouchEnd = () => {
+        if (longPressTimerRef.current) {
+            clearTimeout(longPressTimerRef.current);
+            longPressTimerRef.current = null;
         }
     };
     
@@ -1147,7 +1186,6 @@ export const NotebookDetailView: React.FC<{
             <div className="flex flex-wrap justify-between items-center gap-4 mb-4 p-4 bg-background-light dark:bg-background-dark rounded-lg border border-border-light dark:border-border-dark text-sm">
                 <div className="flex items-center gap-2">
                     <span className="font-semibold">Ordenar por:</span>
-                    <button title="Padrão" onClick={() => handleSortChange('default')} className={`px-3 py-1 rounded-md transition ${questionSortOrder === 'default' ? 'bg-primary-light text-white' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>Padrão</button>
                     <button title="Temperatura" onClick={() => handleSortChange('temp')} className={`p-2 rounded-full transition ${questionSortOrder === 'temp' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🌡️</button>
                     <button title="Mais Recentes" onClick={() => handleSortChange('date')} className={`p-2 rounded-full transition ${questionSortOrder === 'date' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🕐</button>
                     <button title="Aleatória" onClick={() => handleSortChange('random')} className={`p-2 rounded-full transition ${questionSortOrder === 'random' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🔀</button>
@@ -1188,33 +1226,44 @@ export const NotebookDetailView: React.FC<{
             <div className={`space-y-3 ${FONT_SIZE_CLASSES[fontSize]}`}>
                 {(currentQuestion?.options as string[] || []).map((option: string, index: number) => {
                     const isSelected = selectedOption === option;
-                    const isWrong = wrongAnswers.has(option);
+                    const isWrongAttempt = wrongAnswers.has(option);
                     const isCorrect = option === currentQuestion.correctAnswer;
+                    const isStruck = struckOptions.has(option);
 
-                    let optionClass = "bg-background-light dark:bg-background-dark border-border-light dark:border-border-dark hover:border-primary-light dark:hover:border-primary-dark";
+                    let optionClass = "bg-background-light dark:bg-background-dark border-border-light dark:border-border-dark";
                     let cursorClass = "cursor-pointer";
 
                     if (isCompleted) {
                         cursorClass = "cursor-default";
                         if (isCorrect) {
                             optionClass = "bg-green-100 dark:bg-green-900/50 border-green-500";
-                        } else if (isWrong) {
+                        } else if (isWrongAttempt) { // Use isWrongAttempt which is `wrongAnswers.has(option)`
                             optionClass = "bg-red-100 dark:bg-red-900/50 border-red-500";
                         } else {
-                            optionClass = "bg-background-light dark:bg-background-dark opacity-60";
+                            optionClass += " opacity-60";
                         }
                     } else {
-                        if (isWrong) {
+                        if (isStruck) {
+                             optionClass += " opacity-50";
+                        } else if (isWrongAttempt) {
                              optionClass = "bg-red-100 dark:bg-red-900/50 border-red-500 opacity-60";
                              cursorClass = "cursor-not-allowed";
                         }
-                        else if (isSelected) optionClass = "bg-primary-light/10 dark:bg-primary-dark/20 border-primary-light dark:border-primary-dark";
+                        else if (isSelected) {
+                            optionClass = "bg-primary-light/10 dark:bg-primary-dark/20 border-primary-light dark:border-primary-dark";
+                        } else {
+                             optionClass += " hover:border-primary-light dark:hover:border-primary-dark";
+                        }
                     }
 
                     return (
-                        <div key={index} onClick={() => handleSelectOption(option)}
+                        <div key={index} 
+                             onClick={() => handleSelectOption(option)}
+                             onContextMenu={(e) => { e.preventDefault(); toggleStrike(option); }}
+                             onTouchStart={() => handleTouchStart(option)}
+                             onTouchEnd={handleTouchEnd}
                              className={`p-4 border rounded-lg transition-colors ${optionClass} ${cursorClass}`}>
-                             <span>{option}</span>
+                             <span className={isStruck ? 'line-through' : ''}>{option}</span>
                         </div>
                     );
                 })}
@@ -1223,7 +1272,7 @@ export const NotebookDetailView: React.FC<{
             {isCompleted && (
                 <div className="mt-6 p-4 rounded-lg bg-background-light dark:bg-background-dark border border-border-light dark:border-border-dark">
                     <h3 className={`text-lg font-bold ${selectedOption === currentQuestion.correctAnswer ? 'text-green-600' : 'text-red-600'}`}>
-                        {selectedOption === currentQuestion.correctAnswer ? "Resposta Correta!" : "Você errou 3 vezes!"}
+                        {selectedOption === currentQuestion.correctAnswer ? "Resposta Correta!" : "Resposta Incorreta!"}
                     </h3>
                     <p className="mt-2">{currentQuestion.explanation}</p>
                 </div>
@@ -1266,7 +1315,7 @@ export const NotebookDetailView: React.FC<{
                         Próxima Questão
                     </button>
                 ) : (
-                    <button disabled={!selectedOption || wrongAnswers.has(selectedOption)} onClick={() => handleSelectOption(selectedOption!)} className="px-6 py-2 bg-secondary-light text-white font-bold rounded-md hover:bg-emerald-600 disabled:opacity-50">
+                    <button disabled={!selectedOption} onClick={handleConfirmAnswer} className="px-6 py-2 bg-secondary-light text-white font-bold rounded-md hover:bg-emerald-600 disabled:opacity-50">
                         Confirmar
                     </button>
                 )}

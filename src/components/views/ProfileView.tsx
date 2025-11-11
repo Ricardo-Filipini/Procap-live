@@ -1,7 +1,8 @@
+
 import React, { useState, useMemo } from 'react';
 import { AreaChart, Area, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
-import { MainContentProps, StudyPlan, XpEvent } from '../../types';
-import { User } from '../../types';
+// FIX: Import Question and Source types to correctly type the reconstructed question map.
+import { MainContentProps, StudyPlan, XpEvent, User, Question, Source } from '../../types';
 import { UserCircleIcon, SparklesIcon } from '../Icons';
 import { getPersonalizedStudyPlan } from '../../services/geminiService';
 import { FontSizeControl, FONT_SIZE_CLASSES_LARGE } from '../shared/FontSizeControl';
@@ -37,7 +38,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ currentUser: user, app
 
         const topicPerformance: { [topic: string]: { correct: number; total: number } } = {};
         // FIX: Reconstruct the questions map to include the `source` object, which is necessary to access `source.topic`.
-        const allQuestionsMap = new Map(appData.sources.flatMap(s => (s.questions || []).map(q => [q.id, { ...q, source: s }])));
+        // FIX: Explicitly type the map to ensure TypeScript correctly infers the type of its values.
+        type QuestionWithSource = Omit<Question, 'source'> & { source: Source };
+        const allQuestionsMap = new Map<string, QuestionWithSource>(appData.sources.flatMap(s => (s.questions || []).map(q => [q.id, { ...q, source: s }])));
 
         userAnswers.forEach(answer => {
             const question = allQuestionsMap.get(answer.question_id);
