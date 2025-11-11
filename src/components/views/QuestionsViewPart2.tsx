@@ -684,6 +684,7 @@ export const NotebookDetailView: React.FC<{
     const [fontSize, setFontSize] = useState(1);
     const [struckOptions, setStruckOptions] = useState<Set<string>>(new Set());
     const longPressTimerRef = useRef<number | null>(null);
+    const wasLongPress = useRef(false);
     
     const [questionSortOrder, setQuestionSortOrder] = useState<'temp' | 'date' | 'random'>('temp');
     const [shuffleTrigger, setShuffleTrigger] = useState(0);
@@ -1030,8 +1031,10 @@ export const NotebookDetailView: React.FC<{
     };
 
     const handleTouchStart = (option: string) => {
+        wasLongPress.current = false;
         longPressTimerRef.current = window.setTimeout(() => {
             toggleStrike(option);
+            wasLongPress.current = true;
         }, 500);
     };
 
@@ -1167,23 +1170,24 @@ export const NotebookDetailView: React.FC<{
             />
         )}
         <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
-            <div className="flex justify-between items-start gap-4 mb-4">
-                 <div className="flex items-center gap-4 flex-shrink-0">
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 mb-4">
+                <div className="flex items-center gap-4 flex-shrink-0">
                     <button onClick={onBack} className="text-primary-light dark:text-primary-dark hover:underline">&larr; Voltar</button>
                     <button onClick={() => setIsStatsModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-secondary-light text-white text-sm font-semibold rounded-md hover:bg-emerald-600 transition-colors shadow-sm">
                         <ChartBarSquareIcon className="w-5 h-5" />
-                        Estatísticas do Caderno
+                        Estatísticas
                     </button>
                 </div>
                 <div className="text-right">
                     <span className="font-semibold">{currentQuestionIndex + 1} / {sortedQuestions.length}</span>
-                     <p className="text-xs text-gray-500 dark:text-gray-400" title={currentQuestion?.source?.title}>
-                        Fonte: {currentQuestion?.source?.title || 'Desconhecida'}
-                    </p>
+                </div>
+                <div className="w-full text-left md:text-right md:w-auto text-xs text-gray-500 dark:text-gray-400 mt-2 md:mt-0">
+                    <span className="font-bold">Fonte: </span>
+                    <span title={currentQuestion?.source?.title}>{currentQuestion?.source?.title || 'Desconhecida'}</span>
                 </div>
             </div>
 
-            <div className="flex flex-wrap justify-between items-center gap-4 mb-4 p-4 bg-background-light dark:bg-background-dark rounded-lg border border-border-light dark:border-border-dark text-sm">
+            <div className="w-full max-w-full flex flex-wrap justify-start md:justify-between items-center gap-4 mb-4 p-4 bg-background-light dark:bg-background-dark rounded-lg border border-border-light dark:border-border-dark text-sm">
                 <div className="flex items-center gap-2">
                     <span className="font-semibold">Ordenar por:</span>
                     <button title="Temperatura" onClick={() => handleSortChange('temp')} className={`p-2 rounded-full transition ${questionSortOrder === 'temp' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🌡️</button>
@@ -1258,7 +1262,14 @@ export const NotebookDetailView: React.FC<{
 
                     return (
                         <div key={index} 
-                             onClick={() => handleSelectOption(option)}
+                             onClick={() => {
+                                if (wasLongPress.current) return;
+                                if (struckOptions.has(option)) {
+                                    toggleStrike(option);
+                                    return;
+                                }
+                                handleSelectOption(option);
+                             }}
                              onContextMenu={(e) => { e.preventDefault(); toggleStrike(option); }}
                              onTouchStart={() => handleTouchStart(option)}
                              onTouchEnd={handleTouchEnd}
