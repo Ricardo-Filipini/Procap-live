@@ -943,8 +943,18 @@ export const NotebookDetailView: React.FC<{
     };
     
     const handleSelectOption = (option: string) => {
-        if (isCompleted || wrongAnswers.has(option) || struckOptions.has(option)) return;
-
+        if (isCompleted || wrongAnswers.has(option)) return;
+    
+        // If a selection is attempted on a struck option, un-strike it.
+        if (struckOptions.has(option)) {
+            // We only want to remove from the set.
+            setStruckOptions(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(option);
+                return newSet;
+            });
+        }
+    
         if (selectedOption === option) {
             handleConfirmAnswer();
         } else {
@@ -1171,7 +1181,7 @@ export const NotebookDetailView: React.FC<{
         )}
         <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
             <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 mb-4">
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-4 flex-shrink-0">
                     <button onClick={onBack} className="text-primary-light dark:text-primary-dark hover:underline">&larr; Voltar</button>
                     <button onClick={() => setIsStatsModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-secondary-light text-white text-sm font-semibold rounded-md hover:bg-emerald-600 transition-colors shadow-sm">
                         <ChartBarSquareIcon className="w-5 h-5" />
@@ -1181,7 +1191,7 @@ export const NotebookDetailView: React.FC<{
                 <div className="text-right">
                     <span className="font-semibold">{currentQuestionIndex + 1} / {sortedQuestions.length}</span>
                 </div>
-                <div className="w-full md:hidden mt-2 text-xs text-gray-500 dark:text-gray-400">
+                <div className="w-full text-left md:text-right md:w-auto text-xs text-gray-500 dark:text-gray-400 mt-2 md:mt-0">
                     <span className="font-bold">Fonte: </span>
                     <span title={currentQuestion?.source?.title}>{currentQuestion?.source?.title || 'Desconhecida'}</span>
                 </div>
@@ -1262,14 +1272,17 @@ export const NotebookDetailView: React.FC<{
 
                     return (
                         <div key={index} 
-                             onClick={() => {
-                                if (wasLongPress.current) return;
-                                if (struckOptions.has(option)) {
-                                    toggleStrike(option);
+                            onClick={() => {
+                                if (wasLongPress.current) {
+                                    wasLongPress.current = false;
                                     return;
                                 }
-                                handleSelectOption(option);
-                             }}
+                                if (struckOptions.has(option)) {
+                                    toggleStrike(option);
+                                } else {
+                                    handleSelectOption(option);
+                                }
+                            }}
                              onContextMenu={(e) => { e.preventDefault(); toggleStrike(option); }}
                              onTouchStart={() => handleTouchStart(option)}
                              onTouchEnd={handleTouchEnd}

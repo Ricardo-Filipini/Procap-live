@@ -943,12 +943,22 @@ export const NotebookDetailView: React.FC<{
     };
     
     const handleSelectOption = (option: string) => {
-        if (isCompleted || wrongAnswers.has(option) || struckOptions.has(option)) return;
-
-        if (selectedOption === option) {
-            handleConfirmAnswer();
-        } else {
+        if (isCompleted || wrongAnswers.has(option)) return;
+    
+        // If a selection is attempted on a struck option, un-strike it and select it.
+        if (struckOptions.has(option)) {
+            setStruckOptions(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(option);
+                return newSet;
+            });
             setSelectedOption(option);
+        } else {
+            if (selectedOption === option) {
+                handleConfirmAnswer();
+            } else {
+                setSelectedOption(option);
+            }
         }
     };
 
@@ -1170,31 +1180,33 @@ export const NotebookDetailView: React.FC<{
             />
         )}
         <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
-            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 mb-4">
-                <div className="flex items-center gap-4 flex-shrink-0">
-                    <button onClick={onBack} className="text-primary-light dark:text-primary-dark hover:underline">&larr; Voltar</button>
-                    <button onClick={() => setIsStatsModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-secondary-light text-white text-sm font-semibold rounded-md hover:bg-emerald-600 transition-colors shadow-sm">
-                        <ChartBarSquareIcon className="w-5 h-5" />
-                        Estatísticas
-                    </button>
+             <div className="mb-4">
+                <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                    <div className="flex items-center gap-4 flex-shrink-0">
+                        <button onClick={onBack} className="text-primary-light dark:text-primary-dark hover:underline">&larr; Voltar</button>
+                        <button onClick={() => setIsStatsModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-secondary-light text-white text-sm font-semibold rounded-md hover:bg-emerald-600 transition-colors shadow-sm">
+                            <ChartBarSquareIcon className="w-5 h-5" />
+                            Estatísticas
+                        </button>
+                    </div>
+                    <div className="text-right">
+                        <span className="font-semibold">{currentQuestionIndex + 1} / {sortedQuestions.length}</span>
+                    </div>
                 </div>
-                <div className="text-right">
-                    <span className="font-semibold">{currentQuestionIndex + 1} / {sortedQuestions.length}</span>
-                </div>
-                <div className="w-full text-left md:text-right md:w-auto text-xs text-gray-500 dark:text-gray-400 mt-2 md:mt-0">
+                <div className="w-full text-left md:text-right text-xs text-gray-500 dark:text-gray-400 mt-2">
                     <span className="font-bold">Fonte: </span>
                     <span title={currentQuestion?.source?.title}>{currentQuestion?.source?.title || 'Desconhecida'}</span>
                 </div>
             </div>
 
             <div className="w-full max-w-full flex flex-wrap justify-start md:justify-between items-center gap-4 mb-4 p-4 bg-background-light dark:bg-background-dark rounded-lg border border-border-light dark:border-border-dark text-sm">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-semibold">Ordenar por:</span>
                     <button title="Temperatura" onClick={() => handleSortChange('temp')} className={`p-2 rounded-full transition ${questionSortOrder === 'temp' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🌡️</button>
                     <button title="Mais Recentes" onClick={() => handleSortChange('date')} className={`p-2 rounded-full transition ${questionSortOrder === 'date' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🕐</button>
                     <button title="Aleatória" onClick={() => handleSortChange('random')} className={`p-2 rounded-full transition ${questionSortOrder === 'random' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🔀</button>
                 </div>
-                 <div className="flex items-center gap-2">
+                 <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-semibold">Filtrar:</span>
                      {(['Fácil', 'Médio', 'Difícil'] as const).map(d => (
                         <button key={d} onClick={() => handleDifficultyFilterChange(d)} className={`px-3 py-1 rounded-md transition ${difficultyFilter === d ? 'bg-primary-light text-white' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>{d}</button>
@@ -1241,7 +1253,7 @@ export const NotebookDetailView: React.FC<{
                         cursorClass = "cursor-default";
                         if (isCorrect) {
                             optionClass = "bg-green-100 dark:bg-green-900/50 border-green-500";
-                        } else if (isWrongAttempt) { // Use isWrongAttempt which is `wrongAnswers.has(option)`
+                        } else if (isWrongAttempt) {
                             optionClass = "bg-red-100 dark:bg-red-900/50 border-red-500";
                         } else {
                             optionClass += " opacity-60";
@@ -1262,14 +1274,13 @@ export const NotebookDetailView: React.FC<{
 
                     return (
                         <div key={index} 
-                             onClick={() => {
-                                if (wasLongPress.current) return;
-                                if (struckOptions.has(option)) {
-                                    toggleStrike(option);
+                            onClick={() => {
+                                if (wasLongPress.current) {
+                                    wasLongPress.current = false;
                                     return;
                                 }
                                 handleSelectOption(option);
-                             }}
+                            }}
                              onContextMenu={(e) => { e.preventDefault(); toggleStrike(option); }}
                              onTouchStart={() => handleTouchStart(option)}
                              onTouchEnd={handleTouchEnd}
