@@ -343,7 +343,12 @@ export const getInitialData = async (): Promise<{ data: AppData; error: string |
             mind_maps: rawMindMaps
                 .filter(m => m.source_id === source.id)
                 .map((m: any) => ({ ...m, imageUrl: m.image_url })),
-            audio_summaries: rawAudioSummaries.filter(a => a.source_id === source.id),
+            audio_summaries: rawAudioSummaries
+                .filter(a => a.source_id === source.id)
+                .map((a: any) => {
+                    const { audio_url, ...rest } = a;
+                    return { ...rest, audioUrl: audio_url };
+                }),
         }));
 
         const data: AppData = {
@@ -714,9 +719,26 @@ export const clearCaseStudyProgress = async (userId: string, caseStudyId: string
 
 export const addAudioSummary = async (payload: Partial<AudioSummary>): Promise<AudioSummary | null> => {
     if(!checkSupabase()) return null;
-    const { data, error } = await supabase!.from('audio_summaries').insert(payload).select().single();
-    if(error) { console.error("Error adding audio summary:", error); return null; }
-    return data;
+    
+    const { audioUrl, ...restPayload } = payload;
+    const dbPayload = {
+        ...restPayload,
+        ...(audioUrl && { audio_url: audioUrl }),
+    };
+
+    const { data, error } = await supabase!.from('audio_summaries').insert(dbPayload).select().single();
+
+    if(error) { 
+        console.error("Error adding audio summary:", error); 
+        return null; 
+    }
+    
+    if (data) {
+        const { audio_url, ...restData } = data;
+        return { ...restData, audioUrl: audio_url } as AudioSummary;
+    }
+
+    return null;
 };
 
 export const upsertUserContentInteraction = async (payload: Partial<UserContentInteraction>): Promise<UserContentInteraction | null> => {
