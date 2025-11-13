@@ -333,11 +333,11 @@ const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dis
     );
 };
 
-interface CommunityViewProps extends Pick<MainContentProps, 'appData' | 'currentUser' | 'setAppData'> {
+interface CommunityViewProps extends Pick<MainContentProps, 'appData' | 'currentUser' | 'setAppData' | 'theme'> {
   onNavigate: (viewName: string, term: string) => void;
 }
 
-const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[] }> = ({ users, xp_events }) => {
+const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[]; theme: MainContentProps['theme'] }> = ({ users, xp_events, theme }) => {
     const [isPlaying, setIsPlaying] = useState(false);
     const [playbackSpeed, setPlaybackSpeed] = useState<number | 'auto'>(1);
 
@@ -378,7 +378,7 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[] }> = 
     }, [currentTime, sortedEvents, userMap, timeRange]);
 
     // FIX: Typed the state for displayedRaceData to (User & { color: string })[] instead of any[] to resolve type errors.
-    const [displayedRaceData, setDisplayedRaceData] = useState<(User & { color: string })[]>([]);
+    const [displayedRaceData, setDisplayedRaceData] = useState<(User & { color: string; xp: number })[]>([]);
     const displayedDataRef = useRef(displayedRaceData);
     displayedDataRef.current = displayedRaceData;
     const targetRaceDataRef = useRef(targetRaceData);
@@ -408,11 +408,17 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[] }> = 
 
             nextDataMap.forEach((user, userId) => {
                 const targetXp = targetMap.get(userId) ?? 0;
-                if (user.xp < targetXp) {
-                    user.xp = Math.min(user.xp + 10, targetXp);
-                    hasChanged = true;
-                } else if (user.xp > targetXp) {
-                    user.xp = targetXp;
+                const diff = targetXp - user.xp;
+            
+                if (Math.abs(diff) < 0.5) { // Threshold to stop animation and snap
+                    if (user.xp !== targetXp) {
+                        user.xp = targetXp;
+                        hasChanged = true;
+                    }
+                } else {
+                    // Move a fraction of the distance each frame for a smooth animation
+                    const increment = diff * 0.1;
+                    user.xp += increment;
                     hasChanged = true;
                 }
             });
@@ -498,6 +504,7 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[] }> = 
 
     const maxXP = Math.max(20, ...displayedRaceData.map(d => d.xp));
     const ITEM_HEIGHT = 48;
+    const labelColor = theme === 'dark' ? 'text-white' : 'text-black';
 
     return (
         <div className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-md border border-border-light dark:border-border-dark flex-1 flex flex-col h-full">
@@ -531,17 +538,25 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[] }> = 
             />
              <div className="relative overflow-y-auto h-[33rem] lg:h-auto lg:flex-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                 {displayedRaceData.map((user, index) => (
-                    <div
+                     <div
                         key={user.id}
-                        className="absolute w-full h-12 flex items-center pr-4 transition-all duration-300 ease-out"
+                        className="absolute w-full h-12 flex items-center transition-all duration-300 ease-out"
                         style={{ transform: `translateY(${index * ITEM_HEIGHT}px)` }}
                     >
-                        <div className="flex items-center w-full h-full bg-background-light dark:bg-background-dark rounded-md overflow-hidden shadow-sm">
-                            <div className="h-full rounded-l-md transition-all duration-500 ease-linear flex items-center" style={{ width: `${(user.xp / maxXP) * 100}%`, backgroundColor: user.color }}>
-                                 <span className="font-bold text-lg w-10 text-center text-white mix-blend-difference px-2 flex-shrink-0">{index + 1}</span>
-                                <span className="font-semibold text-white px-2 py-0.5 bg-black/20 rounded-md backdrop-blur-sm whitespace-nowrap">{user.pseudonym}</span>
+                        <div className="relative w-full h-full bg-background-light dark:bg-background-dark rounded-md shadow-sm">
+                            {/* Bar */}
+                            <div
+                                className="absolute top-0 left-0 h-full rounded-md transition-all duration-500 ease-linear"
+                                style={{ width: `${(user.xp / maxXP) * 100}%`, backgroundColor: user.color }}
+                            />
+                            {/* Content Layer */}
+                            <div className="relative w-full h-full flex items-center justify-between px-2">
+                                <div className="flex items-center">
+                                    <span className="font-bold text-lg w-8 text-center text-white mix-blend-difference flex-shrink-0">{index + 1}</span>
+                                    <span className={`font-semibold ${labelColor} ml-4 whitespace-nowrap`}>{user.pseudonym}</span>
+                                </div>
+                                <span className="font-bold text-primary-light dark:text-primary-dark tabular-nums flex-shrink-0 pr-2">{Math.floor(user.xp)} XP</span>
                             </div>
-                            <span className="font-bold text-primary-light dark:text-primary-dark ml-auto pr-2 z-10 tabular-nums flex-shrink-0">{Math.floor(user.xp)} XP</span>
                         </div>
                     </div>
                 ))}
@@ -550,7 +565,7 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[] }> = 
     );
 };
 
-export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUser, setAppData, onNavigate }) => {
+export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUser, setAppData, onNavigate, theme }) => {
     const [leaderboardFilter, setLeaderboardFilter] = useState<'geral' | 'diaria' | 'periodo' | 'hora'>('geral');
     const [isRaceChartActive, setIsRaceChartActive] = useState(false);
 
@@ -628,7 +643,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
                     </div>
                 </div>
                 {isRaceChartActive ? (
-                    <LeaderboardRaceChart users={appData.users} xp_events={appData.xp_events} />
+                    <LeaderboardRaceChart users={appData.users} xp_events={appData.xp_events} theme={theme!} />
                 ) : (
                     <div className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-md border border-border-light dark:border-border-dark flex-1 overflow-y-auto">
                         <ul className="space-y-3">
