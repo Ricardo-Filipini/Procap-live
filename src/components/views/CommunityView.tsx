@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { AppData, User, ChatMessage, MainContentProps, XpEvent } from '../../types';
 import { PaperAirplaneIcon, MinusIcon, PlusIcon, PlayIcon, PauseIcon, ArrowPathIcon } from '../Icons';
 import { FontSizeControl, FONT_SIZE_CLASSES } from '../shared/FontSizeControl';
@@ -13,9 +13,15 @@ const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dis
     const [fontSize, setFontSize] = useState(2);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const votePopupRef = useRef<HTMLDivElement>(null);
+    const isInitialMount = useRef(true);
 
-    const scrollToBottom = () => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }
-    useEffect(scrollToBottom, [appData.chatMessages]);
+    useEffect(() => {
+        if (isInitialMount.current) {
+            isInitialMount.current = false;
+        } else {
+            messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+        }
+    }, [appData.chatMessages]);
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -351,7 +357,14 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[] }> = 
         };
     }, [users, xp_events]);
 
-    const [currentTime, setCurrentTime] = useState(() => timeRange?.start || 0);
+    const getInitialTime = useCallback(() => {
+        if (!timeRange) return 0;
+        const startDate = new Date(timeRange.start);
+        startDate.setHours(8, 0, 0, 0);
+        return startDate.getTime();
+    }, [timeRange]);
+
+    const [currentTime, setCurrentTime] = useState(getInitialTime);
 
     const raceData = useMemo(() => {
         if (!timeRange) return [];
@@ -379,34 +392,42 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[] }> = 
     useEffect(() => {
         if (!isPlaying || !timeRange) return;
 
-        let frameId: number;
-        let lastTimestamp = performance.now();
-        const totalAnimationDurationMs = 45 * 1000;
+        const twoHoursInMs = 2 * 60 * 60 * 1000;
+        const intervalDuration = 400 / playbackSpeed;
 
-        const animate = (now: number) => {
-            const elapsed = now - lastTimestamp;
-            lastTimestamp = now;
-
-            const timeIncrement = (timeRange.duration / totalAnimationDurationMs) * elapsed * playbackSpeed;
-            
+        const intervalId = setInterval(() => {
             setCurrentTime(prevTime => {
-                const newTime = prevTime + timeIncrement;
-                if (newTime >= timeRange.end) {
+                if (prevTime >= timeRange.end) {
                     setIsPlaying(false);
+                    return timeRange.end;
+                }
+
+                let newDate = new Date(prevTime);
+                
+                if (newDate.getHours() >= 20) {
+                    // Pula para as 8h do dia seguinte
+                    newDate.setDate(newDate.getDate() + 1);
+                    newDate.setHours(8, 0, 0, 0);
+                } else {
+                    // Avança 2 horas
+                    newDate.setTime(newDate.getTime() + twoHoursInMs);
+                }
+
+                const newTime = newDate.getTime();
+
+                if (newTime >= timeRange.end) {
                     return timeRange.end;
                 }
                 return newTime;
             });
-            frameId = requestAnimationFrame(animate);
-        };
-        
-        frameId = requestAnimationFrame(animate);
-        return () => cancelAnimationFrame(frameId);
+        }, intervalDuration);
+
+        return () => clearInterval(intervalId);
     }, [isPlaying, timeRange, playbackSpeed]);
 
     const handlePlayPause = () => {
         if (timeRange && currentTime >= timeRange.end) {
-            setCurrentTime(timeRange.start);
+            setCurrentTime(getInitialTime());
             setIsPlaying(true);
         } else {
             setIsPlaying(p => !p);
@@ -415,7 +436,7 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[] }> = 
 
     const handleReset = () => {
         if (timeRange) {
-            setCurrentTime(timeRange.start);
+            setCurrentTime(getInitialTime());
             setIsPlaying(true);
         }
     };
@@ -426,10 +447,8 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[] }> = 
     };
 
     useEffect(() => {
-        if (timeRange) {
-            setCurrentTime(timeRange.start);
-        }
-    }, [timeRange]);
+        setCurrentTime(getInitialTime());
+    }, [timeRange, getInitialTime]);
 
     if (!timeRange) {
         return <div className="text-center p-8 bg-card-light dark:bg-card-dark rounded-lg shadow-md border border-border-light dark:border-border-dark flex-1 flex items-center justify-center">Dados de XP insuficientes para a animação.</div>;
@@ -442,7 +461,7 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[] }> = 
         <div className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-md border border-border-light dark:border-border-dark flex-1 flex flex-col h-full">
             <div className="flex justify-between items-center mb-2">
                  <div className="text-center font-bold text-lg tabular-nums">
-                    {new Date(currentTime).toLocaleDateString('pt-BR')}
+                    {new Date(currentTime).toLocaleDateString('pt-BR')} {new Date(currentTime).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}
                 </div>
                 <div className="flex items-center gap-2">
                     <button onClick={handlePlayPause} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700">
@@ -467,7 +486,7 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[] }> = 
                 onChange={handleSliderChange}
                 className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700 mb-4"
             />
-             <div className="flex-1 overflow-hidden relative" style={{ minHeight: `${15 * ITEM_HEIGHT}px` }}>
+             <div className="relative overflow-y-auto h-[33rem] lg:h-auto lg:flex-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                 {raceData.map((user, index) => (
                     <div
                         key={user.id}
@@ -477,7 +496,7 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[] }> = 
                         <div className="flex items-center w-full h-full bg-background-light dark:bg-background-dark rounded-md overflow-hidden shadow-sm">
                             <div className="h-full rounded-l-md transition-all duration-500 ease-linear flex items-center" style={{ width: `${(user.xp / maxXP) * 100}%`, backgroundColor: user.color }}>
                                  <span className="font-bold text-lg w-10 text-center text-white mix-blend-difference px-2 flex-shrink-0">{index + 1}</span>
-                                <span className="font-semibold truncate text-white mix-blend-difference px-2">{user.pseudonym}</span>
+                                <span className="font-semibold text-white mix-blend-difference px-2 py-0.5 bg-black/20 rounded-md backdrop-blur-sm whitespace-nowrap">{user.pseudonym}</span>
                             </div>
                             <span className="font-bold text-primary-light dark:text-primary-dark ml-auto pr-2 z-10 tabular-nums flex-shrink-0">{Math.floor(user.xp)} XP</span>
                         </div>

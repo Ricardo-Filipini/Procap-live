@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { AppData, User, ChatMessage, MainContentProps, XpEvent } from '../../types';
 import { PaperAirplaneIcon, MinusIcon, PlusIcon, PlayIcon, PauseIcon, ArrowPathIcon } from '../Icons';
@@ -13,17 +14,23 @@ const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dis
     const [fontSize, setFontSize] = useState(2);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const votePopupRef = useRef<HTMLDivElement>(null);
-    const isInitialMount = useRef(true);
+    const chatContainerRef = useRef<HTMLDivElement>(null);
 
-    const scrollToBottom = () => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }
-    
+    // Don't scroll on initial mount
     useEffect(() => {
-        if (isInitialMount.current) {
-            isInitialMount.current = false;
-        } else {
-            scrollToBottom();
-        }
+        const timer = setTimeout(() => {
+            if (chatContainerRef.current) {
+                // Check if user has scrolled up
+                const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
+                const isScrolledToBottom = scrollHeight - scrollTop <= clientHeight + 1; // +1 for tolerance
+                if (isScrolledToBottom) {
+                    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+                }
+            }
+        }, 100);
+        return () => clearTimeout(timer);
     }, [appData.chatMessages]);
+
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -265,7 +272,7 @@ const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dis
                      <FontSizeControl fontSize={fontSize} setFontSize={setFontSize} />
                 </div>
             </div>
-            <div className="flex-1 p-4 overflow-y-auto">
+            <div ref={chatContainerRef} className="flex-1 p-4 overflow-y-auto">
                 <div className="space-y-6">
                     {sortedMessages.map(msg => {
                         const isCurrentUser = msg.author === currentUser.pseudonym;
@@ -332,7 +339,7 @@ interface CommunityViewProps extends Pick<MainContentProps, 'appData' | 'current
 
 const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[] }> = ({ users, xp_events }) => {
     const [isPlaying, setIsPlaying] = useState(false);
-    const [playbackSpeed, setPlaybackSpeed] = useState(1);
+    const [playbackSpeed, setPlaybackSpeed] = useState<number | 'auto'>(1);
 
     const { sortedEvents, timeRange, userMap } = useMemo(() => {
         const validUsers = users.filter((u): u is User => !!u);
@@ -340,74 +347,128 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[] }> = 
             const hue = (u.id.charCodeAt(0) * u.id.length * 7) % 360;
             return [u.id, { ...u, color: `hsl(${hue}, 80%, 60%)` }];
         }));
-
-        if (!xp_events || xp_events.length < 2) {
-            return { sortedEvents: [], timeRange: null, userMap: uMap };
-        }
-
+        if (!xp_events || xp_events.length < 2) return { sortedEvents: [], timeRange: null, userMap: uMap };
         const sEvents = [...xp_events].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
         const start = new Date(sEvents[0].created_at).getTime();
         const end = new Date(sEvents[sEvents.length - 1].created_at).getTime();
-
-        if (start >= end) {
-            return { sortedEvents: sEvents, timeRange: null, userMap: uMap };
-        }
-
-        return {
-            sortedEvents: sEvents,
-            timeRange: { start, end, duration: end - start },
-            userMap: uMap
-        };
+        if (start >= end) return { sortedEvents: sEvents, timeRange: null, userMap: uMap };
+        return { sortedEvents: sEvents, timeRange: { start, end, duration: end - start }, userMap: uMap };
     }, [users, xp_events]);
 
-    const [currentTime, setCurrentTime] = useState(() => timeRange?.start || 0);
+    const getInitialTime = useCallback(() => {
+        if (!timeRange) return 0;
+        const startDate = new Date(timeRange.start);
+        startDate.setHours(8, 0, 0, 0);
+        return startDate.getTime();
+    }, [timeRange]);
 
-    const raceData = useMemo(() => {
+    const [currentTime, setCurrentTime] = useState(getInitialTime);
+
+    const targetRaceData = useMemo(() => {
         if (!timeRange) return [];
-
         const xpMap = new Map<string, number>();
         for (const event of sortedEvents) {
-            if (new Date(event.created_at).getTime() > currentTime) {
-                break; 
-            }
+            if (new Date(event.created_at).getTime() > currentTime) break;
             xpMap.set(event.user_id, (xpMap.get(event.user_id) || 0) + event.amount);
         }
-
         return Array.from(userMap.values())
-          .map(user => ({
-// FIX: Cast `user` to the expected type to resolve type inference issues with the spread operator and property access.
-            ...(user as User & { color: string }),
-            xp: xpMap.get((user as User).id) || 0,
-          }))
-          .filter(user => user.xp > 0)
-          .sort((a, b) => b.xp - a.xp)
-          .slice(0, 15);
-
+            .map(user => ({ ...(user as User & { color: string }), xp: xpMap.get((user as User).id) || 0 }))
+            .sort((a, b) => b.xp - a.xp)
+            .slice(0, 15);
     }, [currentTime, sortedEvents, userMap, timeRange]);
+
+    // FIX: Typed the state for displayedRaceData to (User & { color: string })[] instead of any[] to resolve type errors.
+    const [displayedRaceData, setDisplayedRaceData] = useState<(User & { color: string })[]>([]);
+    const displayedDataRef = useRef(displayedRaceData);
+    displayedDataRef.current = displayedRaceData;
+    const targetRaceDataRef = useRef(targetRaceData);
+    targetRaceDataRef.current = targetRaceData;
+
+    useEffect(() => {
+        if (!userMap.size) return;
+        setDisplayedRaceData(Array.from(userMap.values()).map(user => ({ ...(user as User & { color: string }), xp: 0 })));
+    }, [userMap]);
+
+    useEffect(() => {
+        const animationInterval = setInterval(() => {
+            const currentData = displayedDataRef.current;
+            const targetMap = new Map(targetRaceDataRef.current.map(u => [u.id, u.xp]));
+            let hasChanged = false;
+            const nextDataMap = new Map(currentData.map(u => [u.id, { ...u }]));
+
+            targetMap.forEach((targetXp, userId) => {
+                if (!nextDataMap.has(userId)) {
+                    const userObject = userMap.get(userId);
+                    if (userObject) {
+                        nextDataMap.set(userId, { ...userObject, xp: 0 });
+                        hasChanged = true;
+                    }
+                }
+            });
+
+            nextDataMap.forEach((user, userId) => {
+                const targetXp = targetMap.get(userId) ?? 0;
+                if (user.xp < targetXp) {
+                    user.xp = Math.min(user.xp + 10, targetXp);
+                    hasChanged = true;
+                } else if (user.xp > targetXp) {
+                    user.xp = targetXp;
+                    hasChanged = true;
+                }
+            });
+
+            if (hasChanged) {
+                const sortedNextData = Array.from(nextDataMap.values())
+                    .sort((a, b) => b.xp - a.xp)
+                    .slice(0, 15);
+                setDisplayedRaceData(sortedNextData);
+            }
+        }, 50);
+
+        return () => clearInterval(animationInterval);
+    }, [userMap]);
 
     useEffect(() => {
         if (!isPlaying || !timeRange) return;
-
-        const threeHoursInMs = 3 * 60 * 60 * 1000;
-        const intervalDuration = 100 / playbackSpeed;
-
-        const intervalId = setInterval(() => {
+        let timeoutId: number;
+        const tick = () => {
+            let baseInterval = typeof playbackSpeed === 'number' ? 400 / playbackSpeed : 400;
+            
             setCurrentTime(prevTime => {
-                const newTime = prevTime + threeHoursInMs;
-                if (newTime >= timeRange.end) {
+                if (prevTime >= timeRange.end) {
                     setIsPlaying(false);
                     return timeRange.end;
                 }
+                
+                let newDate = new Date(prevTime);
+                const twoHoursInMs = 2 * 60 * 60 * 1000;
+                if (newDate.getHours() >= 20) {
+                    newDate.setDate(newDate.getDate() + 1);
+                    newDate.setHours(8, 0, 0, 0);
+                } else {
+                    newDate.setTime(newDate.getTime() + twoHoursInMs);
+                }
+                const newTime = Math.min(newDate.getTime(), timeRange.end);
+
+                if (playbackSpeed === 'auto') {
+                    const eventsInStep = sortedEvents.filter(e => {
+                        const eventTime = new Date(e.created_at).getTime();
+                        return eventTime > prevTime && eventTime <= newTime;
+                    }).length;
+                    baseInterval = eventsInStep > 0 ? 500 : 150;
+                }
+
+                timeoutId = window.setTimeout(tick, baseInterval);
                 return newTime;
             });
-        }, intervalDuration);
-
-        return () => clearInterval(intervalId);
-    }, [isPlaying, timeRange, playbackSpeed]);
+        };
+        timeoutId = window.setTimeout(tick, 100);
+        return () => clearTimeout(timeoutId);
+    }, [isPlaying, timeRange, playbackSpeed, sortedEvents]);
 
     const handlePlayPause = () => {
         if (timeRange && currentTime >= timeRange.end) {
-            setCurrentTime(timeRange.start);
+            setCurrentTime(getInitialTime());
             setIsPlaying(true);
         } else {
             setIsPlaying(p => !p);
@@ -416,7 +477,8 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[] }> = 
 
     const handleReset = () => {
         if (timeRange) {
-            setCurrentTime(timeRange.start);
+            setCurrentTime(getInitialTime());
+            setDisplayedRaceData(Array.from(userMap.values()).map(user => ({ ...(user as User & { color: string }), xp: 0 })));
             setIsPlaying(true);
         }
     };
@@ -427,16 +489,14 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[] }> = 
     };
 
     useEffect(() => {
-        if (timeRange) {
-            setCurrentTime(timeRange.start);
-        }
-    }, [timeRange]);
+        setCurrentTime(getInitialTime());
+    }, [timeRange, getInitialTime]);
 
     if (!timeRange) {
         return <div className="text-center p-8 bg-card-light dark:bg-card-dark rounded-lg shadow-md border border-border-light dark:border-border-dark flex-1 flex items-center justify-center">Dados de XP insuficientes para a animação.</div>;
     }
 
-    const maxXP = Math.max(20, ...raceData.map(d => d.xp));
+    const maxXP = Math.max(20, ...displayedRaceData.map(d => d.xp));
     const ITEM_HEIGHT = 48;
 
     return (
@@ -452,7 +512,8 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[] }> = 
                     <button onClick={handleReset} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700">
                         <ArrowPathIcon className="w-5 h-5" />
                     </button>
-                     <select value={playbackSpeed} onChange={e => setPlaybackSpeed(Number(e.target.value))} className="bg-background-light dark:bg-background-dark border border-border-light dark:border-border-dark rounded-md text-sm p-1">
+                     <select value={playbackSpeed} onChange={e => setPlaybackSpeed(e.target.value === 'auto' ? 'auto' : Number(e.target.value))} className="bg-background-light dark:bg-background-dark border border-border-light dark:border-border-dark rounded-md text-sm p-1">
+                        <option value="auto">Auto</option>
                         <option value={0.5}>0.5x</option>
                         <option value={1}>1x</option>
                         <option value={2}>2x</option>
@@ -468,8 +529,8 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[] }> = 
                 onChange={handleSliderChange}
                 className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700 mb-4"
             />
-             <div className="lg:flex-1 relative h-[33rem] lg:h-auto overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden" style={{ minHeight: `${15 * ITEM_HEIGHT}px` }}>
-                {raceData.map((user, index) => (
+             <div className="relative overflow-y-auto h-[33rem] lg:h-auto lg:flex-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                {displayedRaceData.map((user, index) => (
                     <div
                         key={user.id}
                         className="absolute w-full h-12 flex items-center pr-4 transition-all duration-300 ease-out"
@@ -478,7 +539,7 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[] }> = 
                         <div className="flex items-center w-full h-full bg-background-light dark:bg-background-dark rounded-md overflow-hidden shadow-sm">
                             <div className="h-full rounded-l-md transition-all duration-500 ease-linear flex items-center" style={{ width: `${(user.xp / maxXP) * 100}%`, backgroundColor: user.color }}>
                                  <span className="font-bold text-lg w-10 text-center text-white mix-blend-difference px-2 flex-shrink-0">{index + 1}</span>
-                                <span className="font-semibold truncate text-white mix-blend-difference px-2">{user.pseudonym}</span>
+                                <span className="font-semibold text-white px-2 py-0.5 bg-black/20 rounded-md backdrop-blur-sm whitespace-nowrap">{user.pseudonym}</span>
                             </div>
                             <span className="font-bold text-primary-light dark:text-primary-dark ml-auto pr-2 z-10 tabular-nums flex-shrink-0">{Math.floor(user.xp)} XP</span>
                         </div>
