@@ -1,7 +1,6 @@
-
-import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { AppData, User, ChatMessage, MainContentProps } from '../../types';
-import { PaperAirplaneIcon, MinusIcon, PlusIcon } from '../Icons';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import { AppData, User, ChatMessage, MainContentProps, XpEvent } from '../../types';
+import { PaperAirplaneIcon, MinusIcon, PlusIcon, PlayIcon, PauseIcon, ArrowPathIcon } from '../Icons';
 import { FontSizeControl, FONT_SIZE_CLASSES } from '../shared/FontSizeControl';
 import { addChatMessage, supabase, upsertUserVote, incrementMessageVote, updateUser as supabaseUpdateUser, logXpEvent } from '../../services/supabaseClient';
 import { getSimpleChatResponse } from '../../services/geminiService';
@@ -14,9 +13,17 @@ const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dis
     const [fontSize, setFontSize] = useState(2);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const votePopupRef = useRef<HTMLDivElement>(null);
+    const isInitialMount = useRef(true);
 
     const scrollToBottom = () => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }
-    useEffect(scrollToBottom, [appData.chatMessages]);
+    
+    useEffect(() => {
+        if (isInitialMount.current) {
+            isInitialMount.current = false;
+        } else {
+            scrollToBottom();
+        }
+    }, [appData.chatMessages]);
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -138,7 +145,8 @@ const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dis
         }
 
         const message = appData.chatMessages.find(m => m.id === messageId);
-        const author = message ? appData.users.find(u => u.pseudonym === message.author) : null;
+        // FIX: Added type guard to ensure author is a valid object before spreading.
+        const author = message ? appData.users.filter((u): u is User => !!u).find(u => u.pseudonym === message.author) : null;
         const isOwnContent = !author || author.id === currentUser.id;
 
         setAppData(prev => {
@@ -162,7 +170,6 @@ const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dis
 
         if (author && !isOwnContent) {
             const xpChange = (type === 'hot' ? 1 : -1) * increment;
-            // FIX: Defensively cast `author.xp` to a number before performing addition.
             const updatedAuthor = { ...author, xp: (Number(author.xp) || 0) + xpChange };
             const result = await supabaseUpdateUser(updatedAuthor);
             if (result) {
@@ -323,24 +330,183 @@ interface CommunityViewProps extends Pick<MainContentProps, 'appData' | 'current
   onNavigate: (viewName: string, term: string) => void;
 }
 
+const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[] }> = ({ users, xp_events }) => {
+    const [isPlaying, setIsPlaying] = useState(false);
+    const [playbackSpeed, setPlaybackSpeed] = useState(1);
+
+    const { sortedEvents, timeRange, userMap } = useMemo(() => {
+        const validUsers = users.filter((u): u is User => !!u);
+        const uMap = new Map(validUsers.map(u => {
+            const hue = (u.id.charCodeAt(0) * u.id.length * 7) % 360;
+            return [u.id, { ...u, color: `hsl(${hue}, 80%, 60%)` }];
+        }));
+
+        if (!xp_events || xp_events.length < 2) {
+            return { sortedEvents: [], timeRange: null, userMap: uMap };
+        }
+
+        const sEvents = [...xp_events].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+        const start = new Date(sEvents[0].created_at).getTime();
+        const end = new Date(sEvents[sEvents.length - 1].created_at).getTime();
+
+        if (start >= end) {
+            return { sortedEvents: sEvents, timeRange: null, userMap: uMap };
+        }
+
+        return {
+            sortedEvents: sEvents,
+            timeRange: { start, end, duration: end - start },
+            userMap: uMap
+        };
+    }, [users, xp_events]);
+
+    const [currentTime, setCurrentTime] = useState(() => timeRange?.start || 0);
+
+    const raceData = useMemo(() => {
+        if (!timeRange) return [];
+
+        const xpMap = new Map<string, number>();
+        for (const event of sortedEvents) {
+            if (new Date(event.created_at).getTime() > currentTime) {
+                break; 
+            }
+            xpMap.set(event.user_id, (xpMap.get(event.user_id) || 0) + event.amount);
+        }
+
+        return Array.from(userMap.values())
+          .map(user => ({
+// FIX: Cast `user` to the expected type to resolve type inference issues with the spread operator and property access.
+            ...(user as User & { color: string }),
+            xp: xpMap.get((user as User).id) || 0,
+          }))
+          .filter(user => user.xp > 0)
+          .sort((a, b) => b.xp - a.xp)
+          .slice(0, 15);
+
+    }, [currentTime, sortedEvents, userMap, timeRange]);
+
+    useEffect(() => {
+        if (!isPlaying || !timeRange) return;
+
+        const threeHoursInMs = 3 * 60 * 60 * 1000;
+        const intervalDuration = 100 / playbackSpeed;
+
+        const intervalId = setInterval(() => {
+            setCurrentTime(prevTime => {
+                const newTime = prevTime + threeHoursInMs;
+                if (newTime >= timeRange.end) {
+                    setIsPlaying(false);
+                    return timeRange.end;
+                }
+                return newTime;
+            });
+        }, intervalDuration);
+
+        return () => clearInterval(intervalId);
+    }, [isPlaying, timeRange, playbackSpeed]);
+
+    const handlePlayPause = () => {
+        if (timeRange && currentTime >= timeRange.end) {
+            setCurrentTime(timeRange.start);
+            setIsPlaying(true);
+        } else {
+            setIsPlaying(p => !p);
+        }
+    };
+
+    const handleReset = () => {
+        if (timeRange) {
+            setCurrentTime(timeRange.start);
+            setIsPlaying(true);
+        }
+    };
+
+    const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setIsPlaying(false);
+        setCurrentTime(e.target.valueAsNumber);
+    };
+
+    useEffect(() => {
+        if (timeRange) {
+            setCurrentTime(timeRange.start);
+        }
+    }, [timeRange]);
+
+    if (!timeRange) {
+        return <div className="text-center p-8 bg-card-light dark:bg-card-dark rounded-lg shadow-md border border-border-light dark:border-border-dark flex-1 flex items-center justify-center">Dados de XP insuficientes para a animação.</div>;
+    }
+
+    const maxXP = Math.max(20, ...raceData.map(d => d.xp));
+    const ITEM_HEIGHT = 48;
+
+    return (
+        <div className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-md border border-border-light dark:border-border-dark flex-1 flex flex-col h-full">
+            <div className="flex justify-between items-center mb-2">
+                 <div className="text-center font-bold text-lg tabular-nums">
+                    {new Date(currentTime).toLocaleDateString('pt-BR')} {new Date(currentTime).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}
+                </div>
+                <div className="flex items-center gap-2">
+                    <button onClick={handlePlayPause} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700">
+                        {isPlaying ? <PauseIcon className="w-5 h-5" /> : <PlayIcon className="w-5 h-5" />}
+                    </button>
+                    <button onClick={handleReset} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700">
+                        <ArrowPathIcon className="w-5 h-5" />
+                    </button>
+                     <select value={playbackSpeed} onChange={e => setPlaybackSpeed(Number(e.target.value))} className="bg-background-light dark:bg-background-dark border border-border-light dark:border-border-dark rounded-md text-sm p-1">
+                        <option value={0.5}>0.5x</option>
+                        <option value={1}>1x</option>
+                        <option value={2}>2x</option>
+                        <option value={5}>5x</option>
+                    </select>
+                </div>
+            </div>
+             <input
+                type="range"
+                min={timeRange.start}
+                max={timeRange.end}
+                value={currentTime}
+                onChange={handleSliderChange}
+                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700 mb-4"
+            />
+             <div className="lg:flex-1 relative h-[33rem] lg:h-auto overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden" style={{ minHeight: `${15 * ITEM_HEIGHT}px` }}>
+                {raceData.map((user, index) => (
+                    <div
+                        key={user.id}
+                        className="absolute w-full h-12 flex items-center pr-4 transition-all duration-300 ease-out"
+                        style={{ transform: `translateY(${index * ITEM_HEIGHT}px)` }}
+                    >
+                        <div className="flex items-center w-full h-full bg-background-light dark:bg-background-dark rounded-md overflow-hidden shadow-sm">
+                            <div className="h-full rounded-l-md transition-all duration-500 ease-linear flex items-center" style={{ width: `${(user.xp / maxXP) * 100}%`, backgroundColor: user.color }}>
+                                 <span className="font-bold text-lg w-10 text-center text-white mix-blend-difference px-2 flex-shrink-0">{index + 1}</span>
+                                <span className="font-semibold truncate text-white mix-blend-difference px-2">{user.pseudonym}</span>
+                            </div>
+                            <span className="font-bold text-primary-light dark:text-primary-dark ml-auto pr-2 z-10 tabular-nums flex-shrink-0">{Math.floor(user.xp)} XP</span>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
 export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUser, setAppData, onNavigate }) => {
     const [leaderboardFilter, setLeaderboardFilter] = useState<'geral' | 'diaria' | 'periodo' | 'hora'>('geral');
+    const [isRaceChartActive, setIsRaceChartActive] = useState(false);
 
     const filteredLeaderboard = useMemo(() => {
+        if (isRaceChartActive) return [];
+
         if (leaderboardFilter === 'geral') {
-            // Para o placar 'Geral', usamos o valor de XP total que já está em `appData.users`.
-            // Este valor é a fonte da verdade para o XP total do usuário, calculado na inicialização do app.
             return [...appData.users].sort((a, b) => b.xp - a.xp);
         }
 
-        // Para todos os outros filtros (diário, período, hora), recalculamos o XP a partir dos eventos de XP.
         const calculateXpFromEvents = (events: typeof appData.xp_events) => {
             const userXpMap = new Map<string, number>();
             events.forEach(event => {
                 const currentXp = userXpMap.get(event.user_id) || 0;
                 userXpMap.set(event.user_id, currentXp + event.amount);
             });
-            return appData.users.map(user => ({
+            return appData.users.filter((user): user is User => !!user).map(user => ({
                 ...user,
                 xp: userXpMap.get(user.id) || 0,
             }));
@@ -350,30 +516,18 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
         let startTime: Date;
 
         switch (leaderboardFilter) {
-            case 'diaria':
-                startTime = new Date(now);
-                startTime.setHours(0, 0, 0, 0);
-                break;
-            case 'periodo':
-                startTime = new Date(now);
-                startTime.setHours(now.getHours() < 12 ? 0 : 12, 0, 0, 0);
-                break;
-            case 'hora':
-                startTime = new Date(now.getTime() - 60 * 60 * 1000);
-                break;
+            case 'diaria': startTime = new Date(now); startTime.setHours(0, 0, 0, 0); break;
+            case 'periodo': startTime = new Date(now); startTime.setHours(now.getHours() < 12 ? 0 : 12, 0, 0, 0); break;
+            case 'hora': startTime = new Date(now.getTime() - 60 * 60 * 1000); break;
+            default: startTime = new Date(0); break;
         }
         
-        const xpEventsInPeriod = appData.xp_events.filter(
-            event => new Date(event.created_at) >= startTime
-        );
-        
+        const xpEventsInPeriod = appData.xp_events.filter(event => new Date(event.created_at) >= startTime);
         const userXpInPeriod = calculateXpFromEvents(xpEventsInPeriod);
 
-        return userXpInPeriod
-            .filter(user => user.xp > 0)
-            .sort((a, b) => b.xp - a.xp);
+        return userXpInPeriod.filter(user => user.xp > 0).sort((a, b) => b.xp - a.xp);
 
-    }, [appData.users, appData.xp_events, leaderboardFilter]);
+    }, [appData.users, appData.xp_events, leaderboardFilter, isRaceChartActive]);
     
     const filterOptions = [
         { key: 'geral', emoji: '🌍', title: 'Geral' },
@@ -383,22 +537,26 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
     ];
 
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 h-[calc(100vh-11rem)]">
-            <div className="lg:col-span-1 flex flex-col">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-[calc(100vh-11rem)]">
+            <div className="lg:col-span-1 flex flex-col h-full">
                  <div className="flex justify-between items-center mb-4">
                     <h3 className="text-2xl font-bold flex-shrink-0">Leaderboard</h3>
                     <div className="flex items-end gap-1" style={{ minHeight: '4rem' }}>
+                        <div className="flex flex-col items-center justify-start text-center w-12">
+                            <button title="Corrida de XP" onClick={() => setIsRaceChartActive(a => !a)} className={`p-2 rounded-full transition-colors ${isRaceChartActive ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>
+                                <PlayIcon className="w-5 h-5"/>
+                            </button>
+                             <div className="h-5 mt-1">
+                                {isRaceChartActive && <span className="text-xs font-semibold text-primary-light dark:text-primary-dark">Corrida</span>}
+                            </div>
+                        </div>
                         {filterOptions.map(opt => (
                              <div key={opt.key} className="flex flex-col items-center justify-start text-center w-12">
-                                <button
-                                    title={opt.title}
-                                    onClick={() => setLeaderboardFilter(opt.key as any)}
-                                    className={`p-2 rounded-full text-xl transition-colors ${leaderboardFilter === opt.key ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}
-                                >
+                                <button title={opt.title} onClick={() => { setLeaderboardFilter(opt.key as any); setIsRaceChartActive(false); }} className={`p-2 rounded-full text-xl transition-colors ${leaderboardFilter === opt.key && !isRaceChartActive ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>
                                     {opt.emoji}
                                 </button>
                                 <div className="h-5 mt-1">
-                                    {leaderboardFilter === opt.key && (
+                                    {leaderboardFilter === opt.key && !isRaceChartActive && (
                                         <span className="text-xs font-semibold text-primary-light dark:text-primary-dark">
                                             {opt.title}
                                         </span>
@@ -408,25 +566,29 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
                         ))}
                     </div>
                 </div>
-                <div className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-md border border-border-light dark:border-border-dark flex-1 overflow-y-auto max-h-96 lg:max-h-full">
-                    <ul className="space-y-3">
-                        {filteredLeaderboard.length > 0 ? filteredLeaderboard.map((user, index) => (
-                            <li key={user.id} className={`flex items-center justify-between p-2 rounded-md ${user.id === currentUser.id ? 'bg-primary-light/20' : 'bg-background-light dark:bg-background-dark'}`}>
-                                <div className="flex items-center min-w-0">
-                                    <span className="font-bold text-lg w-14 text-right pr-4 flex-shrink-0">{index + 1}.</span>
-                                    <span className="font-semibold truncate">{user.pseudonym}</span>
+                {isRaceChartActive ? (
+                    <LeaderboardRaceChart users={appData.users} xp_events={appData.xp_events} />
+                ) : (
+                    <div className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-md border border-border-light dark:border-border-dark flex-1 overflow-y-auto">
+                        <ul className="space-y-3">
+                            {filteredLeaderboard.length > 0 ? filteredLeaderboard.map((user, index) => (
+                                <li key={user.id} className={`flex items-center justify-between p-2 rounded-md ${user.id === currentUser.id ? 'bg-primary-light/20' : 'bg-background-light dark:bg-background-dark'}`}>
+                                    <div className="flex items-center min-w-0">
+                                        <span className="font-bold text-lg w-14 text-right pr-4 flex-shrink-0">{index + 1}.</span>
+                                        <span className="font-semibold truncate">{user.pseudonym}</span>
+                                    </div>
+                                    <span className="font-bold text-primary-light dark:text-primary-dark ml-2 flex-shrink-0">{user.xp} XP</span>
+                                </li>
+                            )) : (
+                                <div className="text-center text-gray-500 py-8">
+                                    Nenhum dado para este período.
                                 </div>
-                                <span className="font-bold text-primary-light dark:text-primary-dark ml-2 flex-shrink-0">{user.xp} XP</span>
-                            </li>
-                        )) : (
-                            <div className="text-center text-gray-500 py-8">
-                                Nenhum dado para este período.
-                            </div>
-                        )}
-                    </ul>
-                </div>
+                            )}
+                        </ul>
+                    </div>
+                )}
             </div>
-            <div className="lg:col-span-2">
+            <div className="lg:col-span-1 h-full">
                 <Chat currentUser={currentUser} appData={appData} setAppData={setAppData} onNavigate={onNavigate} />
             </div>
         </div>
