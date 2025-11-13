@@ -1,4 +1,5 @@
 
+
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { AppData, User, ChatMessage, MainContentProps, XpEvent } from '../../types';
 import { PaperAirplaneIcon, MinusIcon, PlusIcon, PlayIcon, PauseIcon, ArrowPathIcon } from '../Icons';
@@ -14,21 +15,14 @@ const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dis
     const [fontSize, setFontSize] = useState(2);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const votePopupRef = useRef<HTMLDivElement>(null);
-    const chatContainerRef = useRef<HTMLDivElement>(null);
+    const isInitialMount = useRef(true);
 
-    // Don't scroll on initial mount
     useEffect(() => {
-        const timer = setTimeout(() => {
-            if (chatContainerRef.current) {
-                // Check if user has scrolled up
-                const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
-                const isScrolledToBottom = scrollHeight - scrollTop <= clientHeight + 1; // +1 for tolerance
-                if (isScrolledToBottom) {
-                    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-                }
-            }
-        }, 100);
-        return () => clearTimeout(timer);
+        if (isInitialMount.current) {
+            isInitialMount.current = false;
+            return;
+        }
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [appData.chatMessages]);
 
 
@@ -272,7 +266,7 @@ const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dis
                      <FontSizeControl fontSize={fontSize} setFontSize={setFontSize} />
                 </div>
             </div>
-            <div ref={chatContainerRef} className="flex-1 p-4 overflow-y-auto">
+            <div className="flex-1 p-4 overflow-y-auto">
                 <div className="space-y-6">
                     {sortedMessages.map(msg => {
                         const isCurrentUser = msg.author === currentUser.pseudonym;
@@ -339,7 +333,7 @@ interface CommunityViewProps extends Pick<MainContentProps, 'appData' | 'current
 
 const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[]; theme: MainContentProps['theme'] }> = ({ users, xp_events, theme }) => {
     const [isPlaying, setIsPlaying] = useState(false);
-    const [playbackSpeed, setPlaybackSpeed] = useState<number | 'auto'>(1);
+    const [playbackSpeed, setPlaybackSpeed] = useState<number | 'auto'>('auto');
 
     const { sortedEvents, timeRange, userMap } = useMemo(() => {
         const validUsers = users.filter((u): u is User => !!u);
@@ -347,12 +341,24 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[]; them
             const hue = (u.id.charCodeAt(0) * u.id.length * 7) % 360;
             return [u.id, { ...u, color: `hsl(${hue}, 80%, 60%)` }];
         }));
-        if (!xp_events || xp_events.length < 2) return { sortedEvents: [], timeRange: null, userMap: uMap };
+
+        if (!xp_events || xp_events.length < 2) {
+            return { sortedEvents: [], timeRange: null, userMap: uMap };
+        }
+
         const sEvents = [...xp_events].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
         const start = new Date(sEvents[0].created_at).getTime();
         const end = new Date(sEvents[sEvents.length - 1].created_at).getTime();
-        if (start >= end) return { sortedEvents: sEvents, timeRange: null, userMap: uMap };
-        return { sortedEvents: sEvents, timeRange: { start, end, duration: end - start }, userMap: uMap };
+
+        if (start >= end) {
+            return { sortedEvents: sEvents, timeRange: null, userMap: uMap };
+        }
+
+        return {
+            sortedEvents: sEvents,
+            timeRange: { start, end, duration: end - start },
+            userMap: uMap
+        };
     }, [users, xp_events]);
 
     const getInitialTime = useCallback(() => {
@@ -372,12 +378,14 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[]; them
             xpMap.set(event.user_id, (xpMap.get(event.user_id) || 0) + event.amount);
         }
         return Array.from(userMap.values())
-            .map(user => ({ ...(user as User & { color: string }), xp: xpMap.get((user as User).id) || 0 }))
+            .map(user => ({
+              ...(user as User & { color: string }),
+              xp: xpMap.get((user as User).id) || 0,
+            }))
             .sort((a, b) => b.xp - a.xp)
             .slice(0, 15);
     }, [currentTime, sortedEvents, userMap, timeRange]);
 
-    // FIX: Typed the state for displayedRaceData to (User & { color: string })[] instead of any[] to resolve type errors.
     const [displayedRaceData, setDisplayedRaceData] = useState<(User & { color: string; xp: number })[]>([]);
     const displayedDataRef = useRef(displayedRaceData);
     displayedDataRef.current = displayedRaceData;
@@ -408,26 +416,30 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[]; them
 
             nextDataMap.forEach((user, userId) => {
                 const targetXp = targetMap.get(userId) ?? 0;
-                const diff = targetXp - user.xp;
+                // FIX: Add type assertion to ensure user.xp is treated as a number.
+                const diff = targetXp - (user as { xp: number }).xp;
             
                 if (Math.abs(diff) < 0.5) { // Threshold to stop animation and snap
-                    if (user.xp !== targetXp) {
-                        user.xp = targetXp;
+                    // FIX: Add type assertion to ensure user.xp is treated as a number.
+                    if ((user as { xp: number }).xp !== targetXp) {
+                        (user as any).xp = targetXp;
                         hasChanged = true;
                     }
                 } else {
                     // Move a fraction of the distance each frame for a smooth animation
                     const increment = diff * 0.1;
-                    user.xp += increment;
+                    // FIX: Add type assertion to ensure user.xp is treated as a number.
+                    (user as any).xp += increment;
                     hasChanged = true;
                 }
             });
 
             if (hasChanged) {
                 const sortedNextData = Array.from(nextDataMap.values())
-                    .sort((a, b) => b.xp - a.xp)
+                    // FIX: Add type assertions to ensure a.xp and b.xp are treated as numbers.
+                    .sort((a, b) => (b as any).xp - (a as any).xp)
                     .slice(0, 15);
-                setDisplayedRaceData(sortedNextData);
+                setDisplayedRaceData(sortedNextData as (User & { color: string; xp: number })[]);
             }
         }, 50);
 
@@ -538,7 +550,7 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[]; them
             />
              <div className="relative overflow-y-auto h-[33rem] lg:h-auto lg:flex-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                 {displayedRaceData.map((user, index) => (
-                     <div
+                    <div
                         key={user.id}
                         className="absolute w-full h-12 flex items-center transition-all duration-300 ease-out"
                         style={{ transform: `translateY(${index * ITEM_HEIGHT}px)` }}
@@ -573,7 +585,8 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
         if (isRaceChartActive) return [];
 
         if (leaderboardFilter === 'geral') {
-            return [...appData.users].sort((a, b) => b.xp - a.xp);
+            // FIX: Add explicit User type to sort parameters to resolve type inference issue.
+            return [...appData.users].sort((a: User, b: User) => b.xp - a.xp);
         }
 
         const calculateXpFromEvents = (events: typeof appData.xp_events) => {
@@ -582,7 +595,8 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
                 const currentXp = userXpMap.get(event.user_id) || 0;
                 userXpMap.set(event.user_id, currentXp + event.amount);
             });
-            return appData.users.filter((user): user is User => !!user).map(user => ({
+            // FIX: Ensure returned users are correctly typed as User.
+            return appData.users.filter((user): user is User => !!user).map((user: User) => ({
                 ...user,
                 xp: userXpMap.get(user.id) || 0,
             }));
@@ -601,7 +615,8 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
         const xpEventsInPeriod = appData.xp_events.filter(event => new Date(event.created_at) >= startTime);
         const userXpInPeriod = calculateXpFromEvents(xpEventsInPeriod);
 
-        return userXpInPeriod.filter(user => user.xp > 0).sort((a, b) => b.xp - a.xp);
+        // FIX: Add explicit User type to sort parameters.
+        return userXpInPeriod.filter(user => user.xp > 0).sort((a: User, b: User) => b.xp - a.xp);
 
     }, [appData.users, appData.xp_events, leaderboardFilter, isRaceChartActive]);
     
@@ -645,7 +660,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
                 {isRaceChartActive ? (
                     <LeaderboardRaceChart users={appData.users} xp_events={appData.xp_events} theme={theme!} />
                 ) : (
-                    <div className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-md border border-border-light dark:border-border-dark flex-1 overflow-y-auto">
+                    <div className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-md border border-border-light dark:border-border-dark flex-1 overflow-y-auto h-[33rem] lg:h-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                         <ul className="space-y-3">
                             {filteredLeaderboard.length > 0 ? filteredLeaderboard.map((user, index) => (
                                 <li key={user.id} className={`flex items-center justify-between p-2 rounded-md ${user.id === currentUser.id ? 'bg-primary-light/20' : 'bg-background-light dark:bg-background-dark'}`}>

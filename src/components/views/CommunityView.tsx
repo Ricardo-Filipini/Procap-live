@@ -19,11 +19,11 @@ const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dis
     useEffect(() => {
         if (isInitialMount.current) {
             isInitialMount.current = false;
-        } else {
-            messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+            return;
         }
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [appData.chatMessages]);
-
+    
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             if (votePopupRef.current && !votePopupRef.current.contains(event.target as Node)) {
@@ -330,7 +330,7 @@ interface CommunityViewProps extends Pick<MainContentProps, 'appData' | 'current
 
 const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[]; theme: MainContentProps['theme'] }> = ({ users, xp_events, theme }) => {
     const [isPlaying, setIsPlaying] = useState(false);
-    const [playbackSpeed, setPlaybackSpeed] = useState<number | 'auto'>(1);
+    const [playbackSpeed, setPlaybackSpeed] = useState<number | 'auto'>('auto');
 
     const { sortedEvents, timeRange, userMap } = useMemo(() => {
         const validUsers = users.filter((u): u is User => !!u);
@@ -650,7 +650,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
                 {isRaceChartActive ? (
                     <LeaderboardRaceChart users={appData.users} xp_events={appData.xp_events} theme={theme!} />
                 ) : (
-                    <div className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-md border border-border-light dark:border-border-dark flex-1 overflow-y-auto">
+                    <div className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-md border border-border-light dark:border-border-dark flex-1 overflow-y-auto h-[33rem] lg:h-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                         <ul className="space-y-3">
                             {filteredLeaderboard.length > 0 ? filteredLeaderboard.map((user, index) => (
                                 <li key={user.id} className={`flex items-center justify-between p-2 rounded-md ${user.id === currentUser.id ? 'bg-primary-light/20' : 'bg-background-light dark:bg-background-dark'}`}>
