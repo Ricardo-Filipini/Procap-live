@@ -813,7 +813,11 @@ export const NotebookDetailView: React.FC<{
         
         return sortedGroup;
 
-    }, [questionsInNotebook, questionSortOrder, prioritizeApostilas, notebook, stableRandomSort, showWrongOnly, appData.userQuestionAnswers, currentUser.id, notebookId, showUnansweredInAnyNotebook, difficultyFilter, questionErrorRates, difficultyThresholds, sourceFilter]);
+    }, [
+        questionsInNotebook, questionSortOrder, prioritizeApostilas, notebook, 
+        stableRandomSort, showWrongOnly, currentUser.id, notebookId, 
+        showUnansweredInAnyNotebook, difficultyFilter, sourceFilter
+    ]);
 
     const currentQuestionIndex = useMemo(() => {
         if (!activeQuestionId) return 0;

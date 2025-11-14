@@ -413,26 +413,31 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[]; them
 
             nextDataMap.forEach((user, userId) => {
                 const targetXp = targetMap.get(userId) ?? 0;
-                const diff = targetXp - user.xp;
+                // FIX: Add type assertion to ensure user.xp is treated as a number.
+                const diff = targetXp - (user as any).xp;
             
                 if (Math.abs(diff) < 0.5) { // Threshold to stop animation and snap
-                    if (user.xp !== targetXp) {
-                        user.xp = targetXp;
+                    // FIX: Add type assertion to ensure user.xp is treated as a number.
+                    if ((user as any).xp !== targetXp) {
+                        // FIX: Add type assertion to ensure user.xp is treated as a number.
+                        (user as any).xp = targetXp;
                         hasChanged = true;
                     }
                 } else {
                     // Move a fraction of the distance each frame for a smooth animation
                     const increment = diff * 0.1;
-                    user.xp += increment;
+                    // FIX: Add type assertion to ensure user.xp is treated as a number.
+                    (user as any).xp += increment;
                     hasChanged = true;
                 }
             });
 
             if (hasChanged) {
                 const sortedNextData = Array.from(nextDataMap.values())
-                    .sort((a, b) => b.xp - a.xp)
+                    // FIX: Add type assertions to ensure a.xp and b.xp are treated as numbers.
+                    .sort((a, b) => (b as any).xp - (a as any).xp)
                     .slice(0, 15);
-                setDisplayedRaceData(sortedNextData);
+                setDisplayedRaceData(sortedNextData as any);
             }
         }, 50);
 
@@ -578,7 +583,8 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
         if (isRaceChartActive) return [];
 
         if (leaderboardFilter === 'geral') {
-            return [...appData.users].sort((a, b) => b.xp - a.xp);
+            // FIX: Add explicit User type to sort parameters to resolve type inference issue.
+            return [...appData.users].sort((a: User, b: User) => b.xp - a.xp);
         }
 
         const calculateXpFromEvents = (events: typeof appData.xp_events) => {
@@ -587,7 +593,8 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
                 const currentXp = userXpMap.get(event.user_id) || 0;
                 userXpMap.set(event.user_id, currentXp + event.amount);
             });
-            return appData.users.filter((user): user is User => !!user).map(user => ({
+            // FIX: Ensure returned users are correctly typed as User.
+            return appData.users.filter((user): user is User => !!user).map((user: User) => ({
                 ...user,
                 xp: userXpMap.get(user.id) || 0,
             }));
@@ -606,7 +613,8 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
         const xpEventsInPeriod = appData.xp_events.filter(event => new Date(event.created_at) >= startTime);
         const userXpInPeriod = calculateXpFromEvents(xpEventsInPeriod);
 
-        return userXpInPeriod.filter(user => user.xp > 0).sort((a, b) => b.xp - a.xp);
+        // FIX: Add explicit User type to sort parameters.
+        return userXpInPeriod.filter(user => user.xp > 0).sort((a: User, b: User) => b.xp - a.xp);
 
     }, [appData.users, appData.xp_events, leaderboardFilter, isRaceChartActive]);
     
