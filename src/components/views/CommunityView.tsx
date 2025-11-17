@@ -1,6 +1,4 @@
 
-
-
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { AppData, User, ChatMessage, MainContentProps, XpEvent } from '../../types';
 import { PaperAirplaneIcon, MinusIcon, PlusIcon, PlayIcon, PauseIcon, ArrowPathIcon } from '../Icons';

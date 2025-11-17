@@ -1,5 +1,4 @@
 
-
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Theme, View, AppData, User, MainContentProps, Source } from '../types';
 import { VIEWS } from '../constants';
@@ -133,8 +132,11 @@ export const MainContent: React.FC<MainContentProps> = (props) => {
                             break;
                         case 'Estudo de Caso':
                             if (appData.caseStudies.length === 0) {
-                                const { caseStudies, userCaseStudyInteractions } = await getCaseStudiesData();
-                                if (caseStudies) setAppData(prev => ({...prev, caseStudies, userCaseStudyInteractions}));
+// FIX: The `getCaseStudiesData` function can return an error object. Added a check to ensure we only process data if the call was successful.
+                                const caseStudiesData = await getCaseStudiesData();
+                                if (!('error' in caseStudiesData)) {
+                                    setAppData(prev => ({...prev, caseStudies: caseStudiesData.caseStudies, userCaseStudyInteractions: caseStudiesData.userCaseStudyInteractions}));
+                                }
                                 dataFetched = true;
                             }
                             break;

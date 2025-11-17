@@ -1,9 +1,4 @@
 
-
-
-
-
-
 import { AppData, User } from '../types';
 import { ACHIEVEMENTS } from '../constants';
 

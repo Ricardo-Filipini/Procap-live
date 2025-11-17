@@ -44,7 +44,7 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
                 appData.userQuestionAnswers.length === 0 ? getUserQuestionAnswers(currentUser.id) : Promise.resolve(null),
                 appData.userNotebookInteractions.length === 0 ? getUserNotebookInteractions(currentUser.id) : Promise.resolve(null),
                 !appData.sources.some(s => s.questions?.length > 0) ? getQuestions() : Promise.resolve(null),
-                !appData.sources.some(s => s.questions?.length > 0) ? getSourcesBase() : Promise.resolve(null),
+                !appData.sources.some((s: Source) => s.questions?.length > 0) ? getSourcesBase() : Promise.resolve(null),
             ]).then(([notebooks, answers, interactions, questions, sources]) => {
                 setAppData(prev => {
                     const newState = { ...prev };
@@ -133,9 +133,6 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
         if (selectedNotebook) {
             const idToSave = selectedNotebook === 'all' ? 'all' : selectedNotebook.id;
             localStorage.setItem('procap_lastNotebookId', idToSave);
-        } else {
-            localStorage.removeItem('procap_lastNotebookId');
-            localStorage.removeItem('procap_lastQuestionId');
         }
     }, [selectedNotebook]);
 
