@@ -957,12 +957,6 @@ export const NotebookDetailView: React.FC<{
         // Force a re-shuffle of the map, even if `questionsInNotebook` hasn't changed
         setShuffleTrigger(c => c + 1); 
     };
-
-    useEffect(() => {
-        if (activeQuestionId) {
-            localStorage.setItem('procap_lastQuestionId', activeQuestionId);
-        }
-    }, [activeQuestionId]);
     
     useEffect(() => {
         if (!questionToRender) return;
@@ -1006,21 +1000,6 @@ export const NotebookDetailView: React.FC<{
             const { source, ...updatedItemWithoutSource } = updatedItem;
             setAppData(prev => ({ ...prev, sources: prev.sources.map((s: Source) => s.id === updatedItem.source_id ? { ...s, questions: s.questions.map(q => q.id === updatedItem.id ? updatedItemWithoutSource : q) } : s) }));
             setCommentingOnQuestion(updatedItem);
-        }
-    };
-    
-    const handleSelectOption = (option: string) => {
-        if (isCompleted || wrongAnswers.has(option)) return;
-
-        if (struckOptions.has(option)) {
-            const newSet = new Set(struckOptions);
-            newSet.delete(option);
-            setStruckOptions(newSet);
-            setSelectedOption(option);
-        } else if (selectedOption === option) {
-            handleConfirmAnswer();
-        } else {
-            setSelectedOption(option);
         }
     };
     
@@ -1086,7 +1065,7 @@ export const NotebookDetailView: React.FC<{
         }
     };
 
-
+    // FIX: Moved 'handleConfirmAnswer' before 'handleSelectOption' to fix "not defined" error.
     const handleConfirmAnswer = async () => {
         if (!selectedOption || !questionToRender || isCompleted) return;
 
@@ -1106,6 +1085,22 @@ export const NotebookDetailView: React.FC<{
             }
         }
     };
+
+    const handleSelectOption = (option: string) => {
+        if (isCompleted || wrongAnswers.has(option)) return;
+
+        if (struckOptions.has(option)) {
+            const newSet = new Set(struckOptions);
+            newSet.delete(option);
+            setStruckOptions(newSet);
+            setSelectedOption(option);
+        } else if (selectedOption === option) {
+            handleConfirmAnswer();
+        } else {
+            setSelectedOption(option);
+        }
+    };
+    
 
     const toggleStrike = (option: string) => {
         if (isCompleted) return;

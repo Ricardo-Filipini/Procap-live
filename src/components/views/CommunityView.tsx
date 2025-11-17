@@ -606,6 +606,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
                 const currentXp = userXpMap.get(event.user_id) || 0;
                 userXpMap.set(event.user_id, currentXp + event.amount);
             });
+            // FIX: Explicitly type `user` to prevent type errors.
             return appData.users.filter((user): user is User => !!user).map((user: User) => ({
                 ...user,
                 xp: userXpMap.get(user.id) || 0,
@@ -626,7 +627,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
         const userXpInPeriod = calculateXpFromEvents(xpEventsInPeriod);
 
         // FIX: Defensively cast xp to number to prevent sort errors.
-        return userXpInPeriod.filter(user => user.xp > 0).sort((a, b) => (Number(b.xp) || 0) - (Number(a.xp) || 0));
+        return userXpInPeriod.filter(user => user.xp > 0).sort((a: {xp: number}, b: {xp: number}) => (Number(b.xp) || 0) - (Number(a.xp) || 0));
 
     }, [appData.users, appData.xp_events, leaderboardFilter, isRaceChartActive]);
     
