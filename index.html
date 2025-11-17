@@ -93,7 +93,7 @@
         var version = document.querySelector('meta[name="app-version"]').getAttribute('content');
         var script = document.createElement('script');
         script.type = 'module';
-        script.src = '/index.tsx?v=' + version;
+        script.src = '/index.js?v=' + version; // Changed from .tsx to .js
         document.body.appendChild(script);
       })();
     </script>
