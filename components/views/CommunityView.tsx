@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { AppData, User, ChatMessage, MainContentProps, XpEvent } from '../../types';
 import { PaperAirplaneIcon, MinusIcon, PlusIcon, PlayIcon, PauseIcon, ArrowPathIcon } from '../Icons';
@@ -414,7 +415,7 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[]; them
             });
             
             // FIX: Correctly type `user` to ensure `xp` is a number for arithmetic operations.
-            nextDataMap.forEach((user: User & { color: string; xp: number }, userId) => {
+            nextDataMap.forEach((user: any, userId) => {
                 const targetXp = targetMap.get(userId) ?? 0;
                 // FIX: `user.xp` is now correctly typed as number.
                 const currentXp = Number(user.xp) || 0;
@@ -435,7 +436,7 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[]; them
             if (hasChanged) {
                 const sortedNextData = Array.from(nextDataMap.values())
                     // FIX: With correct types, direct subtraction is safe and no 'any' is needed.
-                    .sort((a, b) => (Number(b.xp) || 0) - (Number(a.xp) || 0))
+                    .sort((a: any, b: any) => (Number(b.xp) || 0) - (Number(a.xp) || 0))
                     .slice(0, 15);
                 setDisplayedRaceData(sortedNextData);
             }

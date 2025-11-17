@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { MainContent } from './components/MainContent';
@@ -51,15 +52,16 @@ const App: React.FC = () => {
       setIsLoading(true);
       setError(null);
       try {
-        const { data, error } = await getInitialData();
-        if (error) {
-            throw new Error(error);
+        // FIX: Correctly handle the response object from getInitialData.
+        const response = await getInitialData();
+        if (response.error) {
+            throw new Error(response.error);
         }
-        setAppData(data);
+        setAppData(response.data);
         // Restore user session if available from localStorage
         const savedUserId = localStorage.getItem('procap_lastUserId');
         if (savedUserId) {
-          const userToLogin = data.users.find(u => u.id === savedUserId);
+          const userToLogin = response.data.users.find(u => u.id === savedUserId);
           if (userToLogin) {
             setCurrentUser(userToLogin);
           } else {

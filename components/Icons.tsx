@@ -2,6 +2,7 @@
 
 
 
+
 import React from 'react';
 
 export const Icon = (props: React.SVGProps<SVGSVGElement> & { path: string }) => (

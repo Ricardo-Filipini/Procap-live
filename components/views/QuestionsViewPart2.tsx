@@ -1350,7 +1350,7 @@ export const NotebookDetailView: React.FC<{
                         </select>
                     </div>
                 )}
-                {notebook === 'all' && ( <div className="flex items-center gap-2"> <input type="checkbox" id="prioritizeApostilas" checked={prioritizeApostilas} onChange={e => { triggerSnapshotRefresh(); setPrioritizeApostilas(e.target.checked); }} className="h-4 w-4 rounded border-gray-300 text-primary-light focus:ring-primary-light" /> <label htmlFor="prioritizeApostilas" className="font-semibold cursor-pointer">Priorizar (Apostila)</label> </div> )}
+                {notebook === 'all' && ( <div className="flex items-center gap-2"> <input type="checkbox" id="prioritizeApostilas" checked={prioritizeApostilas} onChange={e => { triggerListRefresh(); setPrioritizeApostilas(e.target.checked); }} className="h-4 w-4 rounded border-gray-300 text-primary-light focus:ring-primary-light" /> <label htmlFor="prioritizeApostilas" className="font-semibold cursor-pointer">Priorizar (Apostila)</label> </div> )}
             </div>
             
             <FontSizeControl fontSize={fontSize} setFontSize={setFontSize} className="mb-4" />

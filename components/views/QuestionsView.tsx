@@ -20,8 +20,6 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
     const [commentingOnNotebook, setCommentingOnNotebook] = useState<QuestionNotebook | null>(null);
     const [sort, setSort] = useState<SortOption>('temp');
     const [questionIdToFocus, setQuestionIdToFocus] = useState<string | null>(null);
-    const [restoredFromStorage, setRestoredFromStorage] = useState(false);
-    const [stableNotebooks, setStableNotebooks] = useState<QuestionNotebook[] | null>(null);
 
 
     const allItems = useMemo(() => appData.sources.flatMap(s => (s.questions || []).map(q => ({ ...q, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
@@ -85,39 +83,10 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
             });
         }
     }, [appData, currentUser.id, setAppData]);
-
-    // Create a stable list of notebooks to prevent flickering from external data changes
-    useEffect(() => {
-        if (!stableNotebooks && appData.questionNotebooks.length > 0) {
-            setStableNotebooks([...appData.questionNotebooks]);
-        }
-    }, [appData.questionNotebooks, stableNotebooks]);
     
-    // Restore from localStorage on initial mount
-    useEffect(() => {
-        const allDataLoaded = appData.questionNotebooks.length > 0 && appData.sources.some(s => s.questions?.length > 0);
-
-        if (allDataLoaded && !restoredFromStorage && !navTarget) {
-            const savedNotebookId = localStorage.getItem('procap_lastNotebookId');
-            if (savedNotebookId) {
-                const notebook = savedNotebookId === 'all' ? 'all' : appData.questionNotebooks.find(n => n.id === savedNotebookId);
-                if (notebook) {
-                    setSelectedNotebook(notebook);
-                    setQuestionIdToFocus(localStorage.getItem('procap_lastQuestionId'));
-                } else {
-                    localStorage.removeItem('procap_lastNotebookId');
-                    localStorage.removeItem('procap_lastQuestionId');
-                }
-            }
-            setRestoredFromStorage(true);
-        }
-    }, [appData.questionNotebooks, appData.sources, restoredFromStorage, navTarget]);
-
-
     // Handle explicit navigation from other views
     useEffect(() => {
         if (navTarget?.id) {
-            setRestoredFromStorage(true); // Prevent localStorage restoration from overriding this navigation
             const notebook = appData.questionNotebooks.find(n => n.id === navTarget.id);
             if (notebook) {
                 setSelectedNotebook(notebook);
@@ -127,7 +96,6 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
             }
             clearNavTarget();
         } else if (navTarget?.term) {
-            setRestoredFromStorage(true); // Prevent localStorage restoration from overriding this navigation
             const notebook = appData.questionNotebooks.find(n => n.name.toLowerCase() === navTarget.term!.toLowerCase());
             if (notebook) {
                 setSelectedNotebook(notebook);
@@ -211,8 +179,7 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
     };
     
     const processedNotebooks = useMemo(() => {
-        if (!stableNotebooks) return [];
-        const notebooks: QuestionNotebook[] = [...stableNotebooks];
+        const notebooks: QuestionNotebook[] = [...appData.questionNotebooks];
         switch (sort) {
             case 'time':
                 return notebooks.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
@@ -232,9 +199,9 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
             default:
                 return notebooks;
         }
-    }, [stableNotebooks, sort]);
+    }, [appData.questionNotebooks, sort]);
 
-    if (isLoadingContent || !stableNotebooks) {
+    if (isLoadingContent) {
         return <div className="text-center p-8">Carregando questões e cadernos...</div>;
     }
 
@@ -249,6 +216,8 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
             onBack={() => {
                 setSelectedNotebook(null);
                 setQuestionIdToFocus(null);
+                localStorage.removeItem('procap_lastNotebookId');
+                localStorage.removeItem('procap_lastQuestionId');
             }}
             questionIdToFocus={questionIdToFocus}
             onFocusConsumed={handleFocusConsumed}
