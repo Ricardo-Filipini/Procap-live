@@ -662,17 +662,6 @@ export const NotebookDetailView: React.FC<{
     const [shuffledOptionsMap, setShuffledOptionsMap] = useState(new Map<string, string[]>());
     const [shouldUpdateSnapshot, setShouldUpdateSnapshot] = useState(true);
 
-    useEffect(() => {
-        if (activeQuestionId) {
-            localStorage.setItem('procap_lastQuestionId', activeQuestionId);
-        }
-    }, [activeQuestionId]);
-
-    // FIX: Define the missing triggerListRefresh function.
-    const triggerListRefresh = () => {
-        setShouldUpdateSnapshot(true);
-    };
-
 
     useEffect(() => {
         setIsLoadingGlobalStats(true);
@@ -912,12 +901,13 @@ export const NotebookDetailView: React.FC<{
         
     }, [stableSortedQuestions, activeQuestionId, questionIdToFocus]);
     
+    const triggerSnapshotRefresh = () => setShouldUpdateSnapshot(true);
     
     const handleSortChange = (newSort: typeof questionSortOrder) => {
         consumeFocus();
         navigationActionRef.current = 'sort';
         preservedIndexRef.current = currentQuestionIndex > -1 ? currentQuestionIndex : 0;
-        triggerListRefresh();
+        triggerSnapshotRefresh();
         setQuestionSortOrder(newSort);
         if (newSort === 'random') {
             setShuffleTrigger(c => c + 1);
@@ -928,7 +918,7 @@ export const NotebookDetailView: React.FC<{
         consumeFocus();
         navigationActionRef.current = 'filter';
         preservedIndexRef.current = 0;
-        triggerListRefresh();
+        triggerSnapshotRefresh();
     };
     
     const handleDifficultyFilterChange = (newDifficulty: typeof difficultyFilter) => {
@@ -956,11 +946,15 @@ export const NotebookDetailView: React.FC<{
     };
     
      const handleShuffleOptionsToggle = () => {
-        // This doesn't change the question list, so no need to trigger a list refresh.
         setShuffleOptions(s => !s);
-        // Force a re-shuffle of the map, even if `questionsInNotebook` hasn't changed
-        setShuffleTrigger(c => c + 1); 
+        setShuffleTrigger(c => c + 1);
     };
+
+    useEffect(() => {
+        if (activeQuestionId) {
+            localStorage.setItem('procap_lastQuestionId', activeQuestionId);
+        }
+    }, [activeQuestionId]);
     
     useEffect(() => {
         if (!questionToRender) return;

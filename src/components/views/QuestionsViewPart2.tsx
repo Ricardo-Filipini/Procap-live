@@ -534,8 +534,8 @@ export const NotebookGridView: React.FC<{
         } else {
             id = notebook.id;
             name = notebook.name;
-            // FIX: Defensively filter question_ids to ensure it's an array of strings before creating a Set, preventing a 'Set<unknown>' type error.
-            const notebookQuestionIds = new Set((notebook.question_ids || []).filter((id): id is string => typeof id === 'string'));
+// FIX: Defensively filter question_ids to ensure it's an array of strings before creating a Set, preventing a 'Set<unknown>' type error.
+            const notebookQuestionIds = new Set((notebook.question_ids || []));
             questionCount = notebookQuestionIds.size;
             
             const answeredInThisNotebook = new Set(appData.userQuestionAnswers
@@ -660,12 +660,6 @@ export const NotebookDetailView: React.FC<{
 
     const [stableSortedQuestions, setStableSortedQuestions] = useState<(Question & { user_id: string, created_at: string, source: any})[]>([]);
     const shouldUpdateStableListRef = useRef(true);
-
-    // FIX: Define the missing triggerListRefresh function.
-    const triggerListRefresh = () => {
-        shouldUpdateStableListRef.current = true;
-    };
-
 
     useEffect(() => {
         setIsLoadingGlobalStats(true);
@@ -908,6 +902,9 @@ export const NotebookDetailView: React.FC<{
         
     }, [stableSortedQuestions, activeQuestionId, questionIdToFocus]);
     
+    const triggerListRefresh = () => {
+        shouldUpdateStableListRef.current = true;
+    };
     
     const handleSortChange = (newSort: typeof questionSortOrder) => {
         consumeFocus();
@@ -957,6 +954,12 @@ export const NotebookDetailView: React.FC<{
         // Force a re-shuffle of the map, even if `questionsInNotebook` hasn't changed
         setShuffleTrigger(c => c + 1); 
     };
+
+    useEffect(() => {
+        if (activeQuestionId) {
+            localStorage.setItem('procap_lastQuestionId', activeQuestionId);
+        }
+    }, [activeQuestionId]);
     
     useEffect(() => {
         if (!questionToRender) return;
@@ -1000,6 +1003,21 @@ export const NotebookDetailView: React.FC<{
             const { source, ...updatedItemWithoutSource } = updatedItem;
             setAppData(prev => ({ ...prev, sources: prev.sources.map((s: Source) => s.id === updatedItem.source_id ? { ...s, questions: s.questions.map(q => q.id === updatedItem.id ? updatedItemWithoutSource : q) } : s) }));
             setCommentingOnQuestion(updatedItem);
+        }
+    };
+    
+    const handleSelectOption = (option: string) => {
+        if (isCompleted || wrongAnswers.has(option)) return;
+
+        if (struckOptions.has(option)) {
+            const newSet = new Set(struckOptions);
+            newSet.delete(option);
+            setStruckOptions(newSet);
+            setSelectedOption(option);
+        } else if (selectedOption === option) {
+            handleConfirmAnswer();
+        } else {
+            setSelectedOption(option);
         }
     };
     
@@ -1065,7 +1083,7 @@ export const NotebookDetailView: React.FC<{
         }
     };
 
-    // FIX: Moved 'handleConfirmAnswer' before 'handleSelectOption' to fix "not defined" error.
+
     const handleConfirmAnswer = async () => {
         if (!selectedOption || !questionToRender || isCompleted) return;
 
@@ -1085,22 +1103,6 @@ export const NotebookDetailView: React.FC<{
             }
         }
     };
-
-    const handleSelectOption = (option: string) => {
-        if (isCompleted || wrongAnswers.has(option)) return;
-
-        if (struckOptions.has(option)) {
-            const newSet = new Set(struckOptions);
-            newSet.delete(option);
-            setStruckOptions(newSet);
-            setSelectedOption(option);
-        } else if (selectedOption === option) {
-            handleConfirmAnswer();
-        } else {
-            setSelectedOption(option);
-        }
-    };
-    
 
     const toggleStrike = (option: string) => {
         if (isCompleted) return;

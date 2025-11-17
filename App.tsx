@@ -46,20 +46,6 @@ const App: React.FC = () => {
       localStorage.setItem('procap_agent_settings', JSON.stringify(agentSettings));
   }, [agentSettings]);
 
-  // Version check to clear stale cache on update
-  useEffect(() => {
-    const currentVersion = document.querySelector('meta[name="app-version"]')?.getAttribute('content');
-    const storedVersion = localStorage.getItem('procap_appVersion');
-
-    if (currentVersion && currentVersion !== storedVersion) {
-        console.log(`App updated from ${storedVersion} to ${currentVersion}. Clearing stale cache.`);
-        // Clear keys that might cause issues between versions, especially related to the Questions view.
-        localStorage.removeItem('procap_lastNotebookId');
-        localStorage.removeItem('procap_lastQuestionId');
-        localStorage.setItem('procap_appVersion', currentVersion);
-    }
-  }, []);
-
   // Load only essential user data on initial load
   useEffect(() => {
     const fetchData = async () => {

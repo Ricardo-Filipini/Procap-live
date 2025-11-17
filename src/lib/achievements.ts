@@ -26,12 +26,10 @@ export const checkAndAwardAchievements = (user: User, appData: AppData): User =>
     checkCategory(ACHIEVEMENTS.CONTENT_CREATED, contentCreatedCount);
     
     const votesGiven = appData.userContentInteractions
-        // FIX: Replaced incorrect 'currentUser.id' with 'user.id' from function parameters.
         .filter(i => i.user_id === user.id)
         .reduce((sum, i) => sum + (Number(i.hot_votes) || 0) + (Number(i.cold_votes) || 0), 0)
         +
         appData.userNotebookInteractions
-        // FIX: Replaced incorrect 'currentUser.id' with 'user.id' from function parameters.
         .filter(i => i.user_id === user.id)
         .reduce((sum, i) => sum + (Number(i.hot_votes) || 0) + (Number(i.cold_votes) || 0), 0);
     checkCategory(ACHIEVEMENTS.VOTES_GIVEN, votesGiven);
@@ -46,6 +44,5 @@ export const checkAndAwardAchievements = (user: User, appData: AppData): User =>
     if (newAchievements.size > user.achievements.length) {
         return { ...user, achievements: Array.from(newAchievements).sort() };
     }
-    // FIX: Added missing return statement to ensure function always returns a User object.
     return user;
 };
