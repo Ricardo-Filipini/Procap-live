@@ -522,15 +522,6 @@ export const NotebookGridView: React.FC<{
             .map(i => i.content_id);
     }, [appData.userContentInteractions, currentUser.id]);
 
-    const allUserAnsweredQuestionIds = useMemo(() => {
-        return new Set(
-            appData.userQuestionAnswers
-                .filter(ans => ans.user_id === currentUser.id)
-                .map(ans => ans.question_id)
-        );
-    }, [appData.userQuestionAnswers, currentUser.id]);
-
-
     const renderNotebook = (notebook: QuestionNotebook | 'all' | 'new' | 'favorites') => {
         if (notebook === 'new') {
             return (
@@ -574,7 +565,7 @@ export const NotebookGridView: React.FC<{
         } else {
             id = notebook.id;
             name = notebook.name;
-// FIX: Defensively filter question_ids to ensure it's an array of strings before creating a Set, preventing a 'Set<unknown>' type error.
+            // FIX: Defensively filter question_ids to ensure it's an array of strings before creating a Set, preventing a 'Set<unknown>' type error.
             const notebookQuestionIds = new Set((notebook.question_ids || []).filter((id): id is string => typeof id === 'string'));
             questionCount = notebookQuestionIds.size;
             
@@ -582,7 +573,7 @@ export const NotebookGridView: React.FC<{
                 .filter(a => a.user_id === currentUser.id && a.notebook_id === notebook.id)
                 .map(a => a.question_id));
 
-            resolvedCount = [...notebookQuestionIds].filter(qId => allUserAnsweredQuestionIds.has(qId as string)).length;
+            resolvedCount = answeredInThisNotebook.size;
             
             item = notebook;
             contentType = 'question_notebook';

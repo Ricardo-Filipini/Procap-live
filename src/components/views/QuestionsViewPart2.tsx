@@ -522,15 +522,6 @@ export const NotebookGridView: React.FC<{
             .map(i => i.content_id);
     }, [appData.userContentInteractions, currentUser.id]);
 
-    const allUserAnsweredQuestionIds = useMemo(() => {
-        return new Set(
-            appData.userQuestionAnswers
-                .filter(ans => ans.user_id === currentUser.id)
-                .map(ans => ans.question_id)
-        );
-    }, [appData.userQuestionAnswers, currentUser.id]);
-
-
     const renderNotebook = (notebook: QuestionNotebook | 'all' | 'new' | 'favorites') => {
         if (notebook === 'new') {
             return (
@@ -574,7 +565,7 @@ export const NotebookGridView: React.FC<{
         } else {
             id = notebook.id;
             name = notebook.name;
-            // FIX: Defensively filter question_ids to ensure it's an array of strings before creating a Set, preventing a 'Set<unknown>' type error.
+// FIX: Defensively filter question_ids to ensure it's an array of strings before creating a Set, preventing a 'Set<unknown>' type error.
             const notebookQuestionIds = new Set((notebook.question_ids || []).filter((id): id is string => typeof id === 'string'));
             questionCount = notebookQuestionIds.size;
             
@@ -582,7 +573,7 @@ export const NotebookGridView: React.FC<{
                 .filter(a => a.user_id === currentUser.id && a.notebook_id === notebook.id)
                 .map(a => a.question_id));
 
-            resolvedCount = [...notebookQuestionIds].filter(qId => allUserAnsweredQuestionIds.has(qId as string)).length;
+            resolvedCount = answeredInThisNotebook.size;
             
             item = notebook;
             contentType = 'question_notebook';
@@ -1316,110 +1307,172 @@ export const NotebookDetailView: React.FC<{
                      {(['Fácil', 'Médio', 'Difícil'] as const).map(d => (
                         <button key={d} onClick={() => handleDifficultyFilterChange(d)} className={`px-3 py-1 rounded-md transition ${difficultyFilter === d ? 'bg-primary-light text-white' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>{d}</button>
                     ))}
-                    <button title="Mostrar apenas questões erradas" onClick={handleShowWrongOnlyChange} className={`p-2 rounded-full transition ${showWrongOnly ? 'bg-red-500/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}> <XCircleIcon className={`w-5 h-5 ${showWrongOnly ? 'text-red-500' : 'text-gray-500'}`} /> </button>
-                    {notebook === 'all' && ( <button title="Mostrar apenas questões inéditas (não respondidas em nenhum caderno)" onClick={handleShowUnansweredChange} className={`flex items-center gap-1 px-3 py-1 rounded-md text-sm font-semibold transition ${showUnansweredInAnyNotebook ? 'bg-blue-500/20 text-blue-500' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}> <SparklesIcon className="w-4 h-4" /> Inéditas </button> )}
-                </div>
-                 {notebook === 'all' && (
-                    <div className="flex items-center gap-2">
-                        <span className="font-semibold">Fonte:</span>
-                        <select
-                            value={sourceFilter}
-                            onChange={handleSourceFilterChange}
-                            className="py-1 px-2 rounded-md bg-background-light dark:bg-background-dark border border-border-light dark:border-border-dark"
-                        >
-                            <option value="all">Todas as Fontes</option>
-                            {sourcesForFilter.map(source => (
-                                <option key={source.id} value={source.id}>{source.title}</option>
-                            ))}
-                        </select>
+                    <button title="Mostrar apenas questões erradas" onClick={handleShowWrongOnlyChange} className={`p-2 rounded-full transition ${showWrongOnly ? 'bg-red-500/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}> <XCircleIcon className={`w-5 h--- START OF FILE src/components/views/ContagemView.tsx ---
+
+import React, { useState, useEffect, useMemo } from 'react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts';
+import { MainContentProps, UserMood } from '../../types';
+import { upsertUserMood } from '../../services/supabaseClient';
+
+const PROCAP_START = new Date('2025-11-03T08:00:00-03:00'); // Brasília time (GMT-3)
+const PROVA_TIME = new Date('2025-11-23T08:00:00-03:00');
+
+const MOODS = [
+    { name: 'Animado', emoji: '🥳', color: '#10b981', bgColor: 'bg-green-500/10', borderColor: 'border-green-500' },
+    { name: 'Motivado', emoji: '💪', color: '#14b8a6', bgColor: 'bg-teal-500/10', borderColor: 'border-teal-500' },
+    { name: 'Focado', emoji: '🎯', color: '#3b82f6', bgColor: 'bg-blue-500/10', borderColor: 'border-blue-500' },
+    { name: 'Cansado', emoji: '😴', color: '#6b7280', bgColor: 'bg-gray-500/10', borderColor: 'border-gray-500' },
+    { name: 'Nervoso', emoji: '😬', color: '#eab308', bgColor: 'bg-yellow-500/10', borderColor: 'border-yellow-500' },
+    { name: 'Ansioso', emoji: '😰', color: '#f97316', bgColor: 'bg-orange-500/10', borderColor: 'border-orange-500' },
+    { name: 'Revoltado', emoji: '😡', color: '#ef4444', bgColor: 'bg-red-500/10', borderColor: 'border-red-500' },
+    { name: 'Perdido', emoji: '😵', color: '#8b5cf6', bgColor: 'bg-purple-500/10', borderColor: 'border-purple-500' },
+    { name: 'Marcelando', emoji: '😎', color: '#06b6d4', bgColor: 'bg-cyan-500/10', borderColor: 'border-cyan-500' },
+];
+
+const CustomYAxisTick: React.FC<any> = ({ x, y, payload }) => (
+    <g transform={`translate(${x},${y})`}>
+        <text x={0} y={0} dy={4} textAnchor="end" fill="currentColor" fontSize={24} className="transition-all">
+            {payload.value}
+        </text>
+    </g>
+);
+
+export const ContagemView: React.FC<MainContentProps> = ({ appData, setAppData, currentUser }) => {
+    const [now, setNow] = useState(new Date());
+
+    useEffect(() => {
+        const timer = setInterval(() => setNow(new Date()), 1000);
+        return () => clearInterval(timer);
+    }, []);
+
+    const timeValues = useMemo(() => {
+        const totalDuration = PROVA_TIME.getTime() - PROCAP_START.getTime();
+        const elapsedDuration = now.getTime() - PROCAP_START.getTime();
+        const progressPercentage = Math.max(0, Math.min(100, (elapsedDuration / totalDuration) * 100));
+
+        const remaining = Math.max(0, PROVA_TIME.getTime() - now.getTime());
+        const seconds = Math.floor(remaining / 1000);
+        const minutes = Math.floor(remaining / (1000 * 60));
+        const hours = Math.floor(remaining / (1000 * 60 * 60));
+        const days = Math.floor(remaining / (1000 * 60 * 60 * 24));
+        const weeks = Math.floor(days / 7);
+
+        return { progressPercentage, weeks, days, hours, minutes, seconds };
+    }, [now]);
+
+    const moodChartData = useMemo(() => {
+        const totalVotes = appData.userMoods.length;
+
+        const moodCounts = new Map<string, number>();
+        appData.userMoods.forEach(userMood => {
+            moodCounts.set(userMood.mood, (moodCounts.get(userMood.mood) || 0) + 1);
+        });
+
+        return MOODS.map(mood => {
+            const count = moodCounts.get(mood.name) || 0;
+            const percentage = totalVotes > 0 ? (count / totalVotes) * 100 : 0;
+            return {
+                name: mood.name,
+                emoji: mood.emoji,
+                count: count,
+                color: mood.color,
+                formattedLabel: `${count} (${percentage.toFixed(0)}%)`
+            };
+        });
+    }, [appData.userMoods]);
+
+    const currentUserMood = useMemo(() => {
+        return appData.userMoods.find(m => m.user_id === currentUser.id)?.mood;
+    }, [appData.userMoods, currentUser.id]);
+
+    const handleMoodChange = async (mood: string) => {
+        const oldMood = appData.userMoods.find(m => m.user_id === currentUser.id);
+
+        const optimisticUpdate: UserMood = { user_id: currentUser.id, mood, updated_at: new Date().toISOString() };
+        setAppData(prev => ({
+            ...prev,
+            userMoods: [...prev.userMoods.filter(m => m.user_id !== currentUser.id), optimisticUpdate]
+        }));
+
+        const result = await upsertUserMood(currentUser.id, mood);
+        if (!result) {
+            // Revert on failure
+            setAppData(prev => ({
+                ...prev,
+                userMoods: oldMood ? [...prev.userMoods.filter(m => m.user_id !== currentUser.id), oldMood] : prev.userMoods.filter(m => m.user_id !== currentUser.id)
+            }));
+        }
+    };
+
+    return (
+        <div className="space-y-8 animate-fade-in-up">
+            <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
+                <h2 className="text-2xl font-bold mb-1">🏁 Reta Final: Sua Saga até a Aprovação</h2>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">"A dor é temporária, o cargo é para sempre." (Autor Desconhecido, provavelmente aprovado)</p>
+                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-6">
+                    <div
+                        className="bg-primary-light h-6 rounded-full flex items-center justify-center text-white font-bold text-sm transition-all duration-1000 ease-out"
+                        style={{ width: `${timeValues.progressPercentage}%` }}
+                    >
+                        {timeValues.progressPercentage.toFixed(4)}%
                     </div>
-                )}
-                {notebook === 'all' && ( <div className="flex items-center gap-2"> <input type="checkbox" id="prioritizeApostilas" checked={prioritizeApostilas} onChange={e => setPrioritizeApostilas(e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-primary-light focus:ring-primary-light" /> <label htmlFor="prioritizeApostilas" className="font-semibold cursor-pointer">Priorizar (Apostila)</label> </div> )}
-            </div>
-            
-            <FontSizeControl fontSize={fontSize} setFontSize={setFontSize} className="mb-4" />
-            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5 mb-6">
-                <div className="bg-primary-light h-2.5 rounded-full" style={{ width: `${sortedQuestions.length > 0 ? (((currentQuestionIndex > -1 ? currentQuestionIndex : 0) + 1) / sortedQuestions.length) * 100 : 0}%` }}></div>
-            </div>
-
-            <h2 className={`text-xl font-semibold mb-4 ${FONT_SIZE_CLASSES[fontSize]}`}>{questionToRender?.questionText || 'Carregando enunciado...'}</h2>
-
-            <div className={`space-y-3 ${FONT_SIZE_CLASSES[fontSize]}`}>
-                {displayedOptions.map((option: string, index: number) => {
-                    const isSelected = selectedOption === option;
-                    const isWrongAttempt = wrongAnswers.has(option);
-                    const isCorrect = option === questionToRender.correctAnswer;
-                    const isStruck = struckOptions.has(option);
-
-                    let optionClass = "bg-background-light dark:bg-background-dark border-border-light dark:border-border-dark";
-                    let cursorClass = "cursor-pointer";
-
-                    if (isCompleted) {
-                        cursorClass = "cursor-default";
-                        if (isCorrect) {
-                            optionClass = "bg-green-100 dark:bg-green-900/50 border-green-500";
-                        } else if (isWrongAttempt) { // Use isWrongAttempt which is `wrongAnswers.has(option)`
-                            optionClass = "bg-red-100 dark:bg-red-900/50 border-red-500";
-                        } else {
-                            optionClass += " opacity-60";
-                        }
-                    } else {
-                        if (isStruck) {
-                             optionClass += " opacity-50";
-                        } else if (isWrongAttempt) {
-                             optionClass = "bg-red-100 dark:bg-red-900/50 border-red-500 opacity-60";
-                             cursorClass = "cursor-not-allowed";
-                        }
-                        else if (isSelected) {
-                            optionClass = "bg-primary-light/10 dark:bg-primary-dark/20 border-primary-light dark:border-primary-dark";
-                        } else {
-                             optionClass += " hover:border-primary-light dark:hover:border-primary-dark";
-                        }
-                    }
-
-                    return (
-                        <div key={index} 
-                            onClick={() => {
-                                if (wasLongPress.current || wasSwipe.current) {
-                                    wasLongPress.current = false;
-                                    wasSwipe.current = false;
-                                    return;
-                                }
-                                handleSelectOption(option);
-                            }}
-                             onContextMenu={(e) => { e.preventDefault(); toggleStrike(option); }}
-                             onTouchStart={(e) => handleTouchStart(option, e)}
-                             onTouchEnd={(e) => handleTouchEnd(option, e)}
-                             className={`p-4 border rounded-lg transition-colors ${optionClass} ${cursorClass}`}>
-                             <span className={isStruck ? 'line-through' : ''}>{option}</span>
-                        </div>
-                    );
-                })}
-            </div>
-
-            {isCompleted && (
-                <div className="mt-6 p-4 rounded-lg bg-background-light dark:bg-background-dark border border-border-light dark:border-border-dark">
-                    <h3 className={`text-lg font-bold ${selectedOption === questionToRender.correctAnswer ? 'text-green-600' : 'text-red-600'}`}>
-                        {selectedOption === questionToRender.correctAnswer ? "Resposta Correta!" : "Resposta Incorreta!"}
-                    </h3>
-                    <p className="mt-2">{questionToRender.explanation}</p>
                 </div>
-            )}
-            
-             <ContentActions
-                item={questionToRender} contentType='question' currentUser={currentUser} interactions={appData.userContentInteractions}
-                onVote={(id, type, inc) => handleVoteUpdate(setAppData, currentUser, updateUser, appData, 'question', id, type, inc)}
-                onToggleRead={(id, state) => handleInteractionUpdate(setAppData, appData, currentUser, updateUser, 'question', id, { is_read: !state })}
-                onToggleFavorite={(id, state) => handleInteractionUpdate(setAppData, appData, currentUser, updateUser, 'question', id, { is_favorite: !state })}
-                onComment={() => setCommentingOnQuestion(questionToRender)}
-                extraActions={
-                    <button onClick={() => setIsQuestionStatsModalOpen(true)} className="text-gray-500 hover:text-primary-light flex items-center gap-1" title="Ver estatísticas da questão">
-                        <MagnifyingGlassIcon className="w-5 h-5"/>
-                    </button>
-                }
-            />
+            </div>
 
-            <div className="mt-6 flex justify-between items-center">
-                 <div>
-                    <div className="flex items-center gap-2">
-                        <button onClick={() => navigateQuestion(-1)} disabled={currentQuestionIndex === -1 || currentQuestionIndex === 0} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 rounded-md disabled:opacity-50">Anterior
+            <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
+                <h2 className="text-2xl font-bold mb-2">⏳ Contagem Regressiva para a Glória (ou para o Pânico)</h2>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4 text-center">
+                    {[{value: timeValues.weeks, label: "Semanas"}, {value: timeValues.days, label: "Dias"}, {value: timeValues.hours, label: "Horas"}, {value: timeValues.minutes, label: "Minutos"}, {value: timeValues.seconds, label: "Segundos"}].map(item => (
+                        <div key={item.label} className="bg-background-light dark:bg-background-dark p-4 rounded-lg">
+                            <div className="text-4xl font-bold text-primary-light dark:text-primary-dark">{item.value.toLocaleString('pt-BR')}</div>
+                            <div className="text-sm text-gray-500 dark:text-gray-400">{item.label}</div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
+                    <h2 className="text-2xl font-bold mb-4">Como você está se sentindo hoje? 🤔</h2>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {MOODS.map(mood => (
+                            <button
+                                key={mood.name}
+                                onClick={() => handleMoodChange(mood.name)}
+                                className={`p-2 rounded-lg text-center transition-all border-2 ${
+                                    currentUserMood === mood.name
+                                        ? `${mood.bgColor} ${mood.borderColor} scale-105 shadow-lg`
+                                        : 'bg-background-light dark:bg-background-dark border-transparent hover:scale-105 hover:shadow-md'
+                                }`}
+                            >
+                                <div className="text-2xl">{mood.emoji}</div>
+                                <div className="text-xs font-semibold mt-1">{mood.name}</div>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+                 <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
+                     <h2 className="text-2xl font-bold mb-4">🌡️ Termômetro do Humor da Galera</h2>
+                     <ResponsiveContainer width="100%" height={300}>
+                         <BarChart data={moodChartData} layout="vertical" margin={{ top: 5, right: 60, left: 10, bottom: 5 }}>
+                             <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                             <XAxis type="number" hide />
+                             <YAxis dataKey="emoji" type="category" width={60} tickLine={false} axisLine={false} tick={<CustomYAxisTick />} />
+                             <Tooltip 
+                                cursor={{fill: 'rgba(200,200,200,0.1)'}} 
+                                contentStyle={{ backgroundColor: 'rgba(30,30,30,0.8)', border: 'none', color: 'white', borderRadius: '8px' }}
+                                formatter={(value, name, props) => [props.payload.formattedLabel, props.payload.name]}
+                             />
+                             <Bar dataKey="count" fill="#8884d8" barSize={20}>
+                                <LabelList dataKey="formattedLabel" position="right" offset={5} style={{ fill: 'currentColor', fontSize: 12, fontWeight: 'bold' }} />
+                                {moodChartData.map((entry, index) => (
+                                    <Cell key={`cell-${index}`} fill={entry.color} />
+                                ))}
+                             </Bar>
+                         </BarChart>
+                     </ResponsiveContainer>
+                 </div>
+            </div>
+        </div>
+    );
+};

@@ -99,35 +99,6 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
         }
     }, [selectedNotebook]);
 
-
-    useEffect(() => {
-        const fetchCurrentUserAnswers = async () => {
-            if (!supabase || !currentUser?.id) return;
-
-            const { data, error } = await supabase
-                .from('user_question_answers')
-                .select('*')
-                .eq('user_id', currentUser.id);
-
-            if (error) {
-                console.error("Failed to fetch current user's answers:", error);
-            } else if (data) {
-                setAppData(prev => {
-                    // Filter out stale answers for the current user and merge fresh data
-                    const otherUsersAnswers = prev.userQuestionAnswers.filter(
-                        a => a.user_id !== currentUser.id
-                    );
-                    return {
-                        ...prev,
-                        userQuestionAnswers: [...otherUsersAnswers, ...data],
-                    };
-                });
-            }
-        };
-
-        fetchCurrentUserAnswers();
-    }, [currentUser.id, setAppData]);
-
     const handleNotebookInteractionUpdate = async (notebookId: string, update: Partial<UserNotebookInteraction>) => {
         let newInteractions = [...appData.userNotebookInteractions];
         const existingIndex = newInteractions.findIndex(i => i.user_id === currentUser.id && i.notebook_id === notebookId);

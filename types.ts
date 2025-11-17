@@ -135,6 +135,7 @@ export interface LinkFile {
     url?: string;
     file_path?: string;
     file_name?: string;
+// FIX: Added 'is_anki_deck' to support new study functionality.
     is_anki_deck?: boolean;
     created_at: string;
     hot_votes: number;
@@ -291,6 +292,7 @@ export interface XpEvent {
     created_at: string;
 }
 
+// FIX: Added UserMood interface for the Contagem view.
 export interface UserMood {
     user_id: string;
     mood: string;
@@ -313,6 +315,7 @@ export interface AppData {
   userQuestionAnswers: UserQuestionAnswer[];
   userCaseStudyInteractions: UserCaseStudyInteraction[];
   xp_events: XpEvent[];
+  // FIX: Added userMoods to AppData for the Contagem view.
   userMoods: UserMood[];
 }
 

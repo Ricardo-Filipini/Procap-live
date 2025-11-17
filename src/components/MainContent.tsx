@@ -23,22 +23,13 @@ import { ContagemView } from './views/ContagemView';
 export const MainContent: React.FC<MainContentProps> = (props) => {
   const { activeView, setActiveView, appData, theme, setTheme, onToggleLiveAgent, isLiveAgentActive, onToggleAgentSettings, navTarget, setNavTarget, setScreenContext, liveAgentStatus, processingTasks, setProcessingTasks } = props;
 
-  const handleNavigation = (viewName: string, term: string, id?: string) => {
-    const targetView = VIEWS.find(v => v.name === viewName);
-    if (targetView && setNavTarget) {
-      setNavTarget({ viewName, term, id });
-      setActiveView(targetView);
-    }
-  };
-
   const allSummaries = useMemo(() => appData.sources.flatMap(s => (s.summaries || []).map(summary => ({ ...summary, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
   const allFlashcards = useMemo(() => appData.sources.flatMap(s => (s.flashcards || []).map(fc => ({ ...fc, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
   const allQuestions = useMemo(() => appData.sources.flatMap(s => (s.questions || []).map(q => ({ ...q, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
   const allMindMaps = useMemo(() => appData.sources.flatMap(s => (s.mind_maps || []).map(mm => ({ ...mm, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
   const allAudioSummaries = useMemo(() => appData.sources.flatMap(s => (s.audio_summaries || []).map(as => ({ ...as, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
   const allLinksFiles = useMemo(() => appData.linksFiles.map(lf => ({...lf, user_id: lf.user_id, created_at: lf.created_at})), [appData.linksFiles]);
-  
-   // Auto-dismiss successful processing tasks
+
   useEffect(() => {
     const successTasks = processingTasks.filter(t => t.status === 'success');
     if (successTasks.length > 0) {
@@ -47,8 +38,15 @@ export const MainContent: React.FC<MainContentProps> = (props) => {
         }, 5000);
         return () => clearTimeout(timer);
     }
-  }, [processingTasks]);
+  }, [processingTasks, setProcessingTasks]);
 
+  const handleNavigation = (viewName: string, term: string, id?: string) => {
+    const targetView = VIEWS.find(v => v.name === viewName);
+    if (targetView && setNavTarget) {
+      setNavTarget({ viewName, term, id });
+      setActiveView(targetView);
+    }
+  };
 
   const renderContent = () => {
     // FIX: Pass the full navTarget object if the view name matches to maintain type consistency. The child component can then destructure what it needs.

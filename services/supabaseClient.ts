@@ -1,6 +1,8 @@
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { AppData, User, Source, ChatMessage, UserMessageVote, UserSourceVote, Summary, Flashcard, Question, Comment, MindMap, ContentType, UserContentInteraction, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer, AudioSummary, CaseStudy, UserCaseStudyInteraction, ScheduleEvent, StudyPlan, LinkFile, XpEvent, UserMood } from '../types';
+import { INITIAL_APP_DATA } from '../constants';
+
 
 /*
 -- =================================================================
@@ -267,41 +269,6 @@ const fetchTable = async (tableName: string, options?: {
     return allData;
 };
 
-export const getUsers = async (): Promise<{ users: User[]; error: string | null; }> => {
-    if (!checkSupabase()) return { users: [], error: "Supabase client not configured." };
-    try {
-        const users = await fetchTable('users');
-        return { users, error: null };
-    } catch (error: any) {
-        return { users: [], error: error.message };
-    }
-};
-
-export const getCoreData = async (userId: string): Promise<{ data: Partial<Omit<AppData, 'users'>>; error: string | null; }> => {
-    const emptyData: Partial<Omit<AppData, 'users'>> = { questionNotebooks: [], userQuestionAnswers: [] };
-    if (!checkSupabase()) return { data: emptyData, error: "Supabase client not configured." };
-
-    try {
-        const [
-            questionNotebooks,
-            userQuestionAnswers,
-        ] = await Promise.all([
-            fetchTable('question_notebooks', { ordering: { column: 'created_at', options: { ascending: false } } }),
-            fetchTable('user_question_answers', { filter: { column: 'user_id', value: userId } }),
-        ]);
-
-        const data: Partial<Omit<AppData, 'users'>> = {
-            questionNotebooks,
-            userQuestionAnswers,
-        };
-
-        return { data, error: null };
-    } catch (error: any) {
-        console.error("Error in getCoreData:", error);
-        return { data: emptyData, error: error.message };
-    }
-};
-
 export const getQuestions = async (): Promise<Question[]> => {
     if (!checkSupabase()) return [];
     const raw = await fetchTable('questions');
@@ -348,60 +315,6 @@ export const getSourcesWithContent = async (): Promise<Source[]> => {
     }));
 };
 
-export const fetchAllDataInBackground = async (): Promise<{ data: Partial<Omit<AppData, 'users'>>; error: string | null; }> => {
-    try {
-        const [
-            sources,
-            linksFiles,
-            chatMessages,
-            caseStudies,
-            scheduleEvents,
-            studyPlans,
-            userMessageVotes,
-            userSourceVotes,
-            userContentInteractions,
-            userNotebookInteractions,
-            userCaseStudyInteractions,
-            xp_events,
-            userMoods,
-        ] = await Promise.all([
-            getSourcesWithContent(),
-            getLinksFiles(),
-            fetchTable('chat_messages', { ordering: { column: 'timestamp', options: { ascending: true } } }),
-            fetchTable('case_studies', { ordering: { column: 'created_at', options: { ascending: false } } }),
-            getScheduleEvents(),
-            getStudyPlans(),
-            fetchTable('user_message_votes'),
-            fetchTable('user_source_votes'),
-            fetchTable('user_content_interactions'),
-            fetchTable('user_notebook_interactions'),
-            fetchTable('user_case_study_interactions'),
-            fetchTable('xp_events', { ordering: { column: 'created_at', options: { ascending: false } } }),
-            getUserMoods(),
-        ]);
-
-        return {
-            data: {
-                sources,
-                linksFiles,
-                chatMessages,
-                caseStudies,
-                scheduleEvents,
-                studyPlans,
-                userMessageVotes,
-                userSourceVotes,
-                userContentInteractions,
-                userNotebookInteractions,
-                userCaseStudyInteractions,
-                xp_events,
-                userMoods,
-            },
-            error: null,
-        };
-    } catch (error: any) {
-        return { data: {}, error: error.message };
-    }
-}
 
 export const getLinksFiles = async (): Promise<LinkFile[]> => fetchTable('links_files', { ordering: { column: 'created_at', options: { ascending: false } } });
 export const getCaseStudiesData = async (): Promise<{ caseStudies: CaseStudy[], userCaseStudyInteractions: UserCaseStudyInteraction[] } | { error: string }> => {
@@ -426,6 +339,71 @@ export const getCommunityData = async (): Promise<{ chatMessages: ChatMessage[],
 export const getScheduleEvents = async (): Promise<ScheduleEvent[]> => fetchTable('schedule_events', { ordering: { column: 'date', options: { ascending: true } } });
 export const getStudyPlans = async (): Promise<StudyPlan[]> => fetchTable('study_plans');
 export const getUserMoods = async (): Promise<UserMood[]> => fetchTable('user_moods');
+
+export const getInitialData = async (): Promise<{ data: AppData; error: string | null; }> => {
+    try {
+        const [
+            users,
+            sources,
+            linksFiles,
+            chatMessages,
+            questionNotebooks,
+            caseStudies,
+            scheduleEvents,
+            studyPlans,
+            userMessageVotes,
+            userSourceVotes,
+            userContentInteractions,
+            userNotebookInteractions,
+            userQuestionAnswers,
+            userCaseStudyInteractions,
+            xp_events,
+            userMoods,
+        ] = await Promise.all([
+            fetchTable('users'),
+            getSourcesWithContent(),
+            getLinksFiles(),
+            fetchTable('chat_messages', { ordering: { column: 'timestamp', options: { ascending: true } } }),
+            fetchTable('question_notebooks', { ordering: { column: 'created_at', options: { ascending: false } } }),
+            fetchTable('case_studies', { ordering: { column: 'created_at', options: { ascending: false } } }),
+            getScheduleEvents(),
+            getStudyPlans(),
+            fetchTable('user_message_votes'),
+            fetchTable('user_source_votes'),
+            fetchTable('user_content_interactions'),
+            fetchTable('user_notebook_interactions'),
+            fetchTable('user_question_answers'),
+            fetchTable('user_case_study_interactions'),
+            fetchTable('xp_events', { ordering: { column: 'created_at', options: { ascending: false } } }),
+            getUserMoods(),
+        ]);
+
+        return {
+            data: {
+                users,
+                sources,
+                linksFiles,
+                chatMessages,
+                questionNotebooks,
+                caseStudies,
+                scheduleEvents,
+                studyPlans,
+                userMessageVotes,
+                userSourceVotes,
+                userContentInteractions,
+                userNotebookInteractions,
+                userQuestionAnswers,
+                userCaseStudyInteractions,
+                xp_events,
+                userMoods,
+            },
+            error: null,
+        };
+    } catch (error: any) {
+        console.error("Error fetching initial data from Supabase", error);
+        return { data: INITIAL_APP_DATA, error: error.message };
+    }
+};
 
 
 export const createUser = async (newUserPayload: Omit<User, 'id'>): Promise<{ user: User | null, error: string | null }> => {

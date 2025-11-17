@@ -412,11 +412,11 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[]; them
                 }
             });
             
-            // FIX: Explicitly typed `user` to avoid type errors during arithmetic operations.
-            nextDataMap.forEach((user: User & { xp: number | string }, userId) => {
+            // FIX: Correctly type `user` to ensure `xp` is a number for arithmetic operations.
+            nextDataMap.forEach((user: User & { color: string; xp: number }, userId) => {
                 const targetXp = targetMap.get(userId) ?? 0;
-                // FIX: Used Number() to ensure `user.xp` is treated as a number for arithmetic operations.
-                const currentXp = Number(user.xp) || 0;
+                // FIX: `user.xp` is now correctly typed as number.
+                const currentXp = user.xp || 0;
                 const diff = targetXp - currentXp;
             
                 if (Math.abs(diff) < 0.5) {
@@ -433,11 +433,10 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[]; them
 
             if (hasChanged) {
                 const sortedNextData = Array.from(nextDataMap.values())
-                    // FIX: Explicitly cast types in sort to 'any' to prevent 'property does not exist on unknown' errors.
-                    .sort((a: any, b: any) => (Number(b.xp) || 0) - (Number(a.xp) || 0))
+                    // FIX: With correct types, direct subtraction is safe and no 'any' is needed.
+                    .sort((a, b) => b.xp - a.xp)
                     .slice(0, 15);
-                // FIX: Cast the sorted data to the correct type for the state update.
-                setDisplayedRaceData(sortedNextData as (User & { color: string; xp: number })[]);
+                setDisplayedRaceData(sortedNextData);
             }
         }, 50);
 
