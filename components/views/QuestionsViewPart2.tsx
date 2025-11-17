@@ -659,7 +659,9 @@ export const NotebookDetailView: React.FC<{
     const [isLoadingGlobalStats, setIsLoadingGlobalStats] = useState(true);
 
     const [stableSortedQuestions, setStableSortedQuestions] = useState<(Question & { user_id: string, created_at: string, source: any})[]>([]);
-    const shouldUpdateStableListRef = useRef(true);
+    const [shuffledOptionsMap, setShuffledOptionsMap] = useState(new Map<string, string[]>());
+    const [shouldUpdateSnapshot, setShouldUpdateSnapshot] = useState(true);
+
 
     useEffect(() => {
         setIsLoadingGlobalStats(true);
@@ -810,11 +812,26 @@ export const NotebookDetailView: React.FC<{
     ]);
 
     useEffect(() => {
-        if (shouldUpdateStableListRef.current) {
+        if (shouldUpdateSnapshot) {
             setStableSortedQuestions(liveSortedQuestions);
-            shouldUpdateStableListRef.current = false;
+
+            const newMap = new Map<string, string[]>();
+            if (shuffleOptions) {
+                questionsInNotebook.forEach(question => {
+                    const options = [...question.options];
+                    for (let i = options.length - 1; i > 0; i--) {
+                        const j = Math.floor(Math.random() * (i + 1));
+                        [options[i], options[j]] = [options[j], options[i]];
+                    }
+                    newMap.set(question.id, options);
+                });
+            }
+            setShuffledOptionsMap(newMap);
+
+            setShouldUpdateSnapshot(false);
         }
-    }, [liveSortedQuestions]);
+    }, [liveSortedQuestions, shouldUpdateSnapshot, shuffleOptions, questionsInNotebook, shuffleTrigger]);
+
 
     const currentQuestionIndex = useMemo(() => {
         if (!activeQuestionId) return -1;
@@ -828,24 +845,6 @@ export const NotebookDetailView: React.FC<{
         // Fallback to find from original list if it was filtered out after answering
         return questionsInNotebook.find(q => q.id === activeQuestionId);
     }, [currentQuestionIndex, stableSortedQuestions, questionsInNotebook, activeQuestionId]);
-
-     const shuffledOptionsMap = useMemo(() => {
-        if (!shuffleOptions) {
-            return new Map<string, string[]>();
-        }
-        
-        const newMap = new Map<string, string[]>();
-        questionsInNotebook.forEach(question => {
-            const options = [...question.options];
-            // Fisher-Yates shuffle
-            for (let i = options.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [options[i], options[j]] = [options[j], options[i]];
-            }
-            newMap.set(question.id, options);
-        });
-        return newMap;
-    }, [shuffleOptions, questionsInNotebook, shuffleTrigger]); // Added shuffleTrigger
 
      useEffect(() => {
         if (currentQuestion) {
@@ -902,15 +901,13 @@ export const NotebookDetailView: React.FC<{
         
     }, [stableSortedQuestions, activeQuestionId, questionIdToFocus]);
     
-    const triggerListRefresh = () => {
-        shouldUpdateStableListRef.current = true;
-    };
+    const triggerSnapshotRefresh = () => setShouldUpdateSnapshot(true);
     
     const handleSortChange = (newSort: typeof questionSortOrder) => {
         consumeFocus();
         navigationActionRef.current = 'sort';
         preservedIndexRef.current = currentQuestionIndex > -1 ? currentQuestionIndex : 0;
-        triggerListRefresh();
+        triggerSnapshotRefresh();
         setQuestionSortOrder(newSort);
         if (newSort === 'random') {
             setShuffleTrigger(c => c + 1);
@@ -921,7 +918,7 @@ export const NotebookDetailView: React.FC<{
         consumeFocus();
         navigationActionRef.current = 'filter';
         preservedIndexRef.current = 0;
-        triggerListRefresh();
+        triggerSnapshotRefresh();
     };
     
     const handleDifficultyFilterChange = (newDifficulty: typeof difficultyFilter) => {
@@ -949,10 +946,8 @@ export const NotebookDetailView: React.FC<{
     };
     
      const handleShuffleOptionsToggle = () => {
-        triggerListRefresh(); // Although it doesn't change the question list, it ensures consistency if needed
         setShuffleOptions(s => !s);
-        // Force a re-shuffle of the map, even if `questionsInNotebook` hasn't changed
-        setShuffleTrigger(c => c + 1); 
+        setShuffleTrigger(c => c + 1);
     };
 
     useEffect(() => {
@@ -1000,8 +995,8 @@ export const NotebookDetailView: React.FC<{
         const success = await updateContentComments('questions', commentingOnQuestion.id, updatedComments);
         if (success) {
             const updatedItem = {...commentingOnQuestion, comments: updatedComments };
-            // FIX: Explicitly type 's' as 'Source' to resolve type inference issues.
-            setAppData(prev => ({ ...prev, sources: prev.sources.map((s: Source) => s.id === updatedItem.source_id ? { ...s, questions: s.questions.map(q => q.id === updatedItem.id ? updatedItem : q) } : s) }));
+            const { source, ...updatedItemWithoutSource } = updatedItem;
+            setAppData(prev => ({ ...prev, sources: prev.sources.map((s: Source) => s.id === updatedItem.source_id ? { ...s, questions: s.questions.map(q => q.id === updatedItem.id ? updatedItemWithoutSource : q) } : s) }));
             setCommentingOnQuestion(updatedItem);
         }
     };
@@ -1355,7 +1350,7 @@ export const NotebookDetailView: React.FC<{
                         </select>
                     </div>
                 )}
-                {notebook === 'all' && ( <div className="flex items-center gap-2"> <input type="checkbox" id="prioritizeApostilas" checked={prioritizeApostilas} onChange={e => { triggerListRefresh(); setPrioritizeApostilas(e.target.checked); }} className="h-4 w-4 rounded border-gray-300 text-primary-light focus:ring-primary-light" /> <label htmlFor="prioritizeApostilas" className="font-semibold cursor-pointer">Priorizar (Apostila)</label> </div> )}
+                {notebook === 'all' && ( <div className="flex items-center gap-2"> <input type="checkbox" id="prioritizeApostilas" checked={prioritizeApostilas} onChange={e => { triggerSnapshotRefresh(); setPrioritizeApostilas(e.target.checked); }} className="h-4 w-4 rounded border-gray-300 text-primary-light focus:ring-primary-light" /> <label htmlFor="prioritizeApostilas" className="font-semibold cursor-pointer">Priorizar (Apostila)</label> </div> )}
             </div>
             
             <FontSizeControl fontSize={fontSize} setFontSize={setFontSize} className="mb-4" />

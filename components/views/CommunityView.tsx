@@ -417,7 +417,7 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[]; them
             nextDataMap.forEach((user: User & { color: string; xp: number }, userId) => {
                 const targetXp = targetMap.get(userId) ?? 0;
                 // FIX: `user.xp` is now correctly typed as number.
-                const currentXp = user.xp || 0;
+                const currentXp = Number(user.xp) || 0;
                 const diff = targetXp - currentXp;
             
                 if (Math.abs(diff) < 0.5) {
@@ -435,7 +435,7 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[]; them
             if (hasChanged) {
                 const sortedNextData = Array.from(nextDataMap.values())
                     // FIX: With correct types, direct subtraction is safe and no 'any' is needed.
-                    .sort((a, b) => b.xp - a.xp)
+                    .sort((a, b) => (Number(b.xp) || 0) - (Number(a.xp) || 0))
                     .slice(0, 15);
                 setDisplayedRaceData(sortedNextData);
             }

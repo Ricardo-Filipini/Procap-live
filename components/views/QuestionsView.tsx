@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { MainContentProps } from '../../types';
 import { Question, Comment, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer, Source } from '../../types';
@@ -23,6 +21,8 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
     const [sort, setSort] = useState<SortOption>('temp');
     const [questionIdToFocus, setQuestionIdToFocus] = useState<string | null>(null);
     const [restoredFromStorage, setRestoredFromStorage] = useState(false);
+    const [stableNotebooks, setStableNotebooks] = useState<QuestionNotebook[] | null>(null);
+
 
     const allItems = useMemo(() => appData.sources.flatMap(s => (s.questions || []).map(q => ({ ...q, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
     
@@ -85,10 +85,19 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
             });
         }
     }, [appData, currentUser.id, setAppData]);
+
+    // Create a stable list of notebooks to prevent flickering from external data changes
+    useEffect(() => {
+        if (!stableNotebooks && appData.questionNotebooks.length > 0) {
+            setStableNotebooks([...appData.questionNotebooks]);
+        }
+    }, [appData.questionNotebooks, stableNotebooks]);
     
     // Restore from localStorage on initial mount
     useEffect(() => {
-        if (appData.questionNotebooks.length > 0 && !restoredFromStorage && !navTarget) {
+        const allDataLoaded = appData.questionNotebooks.length > 0 && appData.sources.some(s => s.questions?.length > 0);
+
+        if (allDataLoaded && !restoredFromStorage && !navTarget) {
             const savedNotebookId = localStorage.getItem('procap_lastNotebookId');
             if (savedNotebookId) {
                 const notebook = savedNotebookId === 'all' ? 'all' : appData.questionNotebooks.find(n => n.id === savedNotebookId);
@@ -96,14 +105,14 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
                     setSelectedNotebook(notebook);
                     setQuestionIdToFocus(localStorage.getItem('procap_lastQuestionId'));
                 } else {
-                    // Clean up invalid data from storage
                     localStorage.removeItem('procap_lastNotebookId');
                     localStorage.removeItem('procap_lastQuestionId');
                 }
             }
-            setRestoredFromStorage(true); // Ensure this runs only once
+            setRestoredFromStorage(true);
         }
-    }, [appData.questionNotebooks, restoredFromStorage, navTarget]);
+    }, [appData.questionNotebooks, appData.sources, restoredFromStorage, navTarget]);
+
 
     // Handle explicit navigation from other views
     useEffect(() => {
@@ -130,14 +139,11 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
         }
     }, [navTarget, clearNavTarget, appData.questionNotebooks]);
 
-    // Save current notebook to localStorage
+    // Save current notebook to localStorage but DON'T clear it on back navigation
     useEffect(() => {
         if (selectedNotebook) {
             const idToSave = selectedNotebook === 'all' ? 'all' : selectedNotebook.id;
             localStorage.setItem('procap_lastNotebookId', idToSave);
-        } else {
-            localStorage.removeItem('procap_lastNotebookId');
-            localStorage.removeItem('procap_lastQuestionId');
         }
     }, [selectedNotebook]);
 
@@ -205,7 +211,8 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
     };
     
     const processedNotebooks = useMemo(() => {
-        const notebooks: QuestionNotebook[] = [...appData.questionNotebooks];
+        if (!stableNotebooks) return [];
+        const notebooks: QuestionNotebook[] = [...stableNotebooks];
         switch (sort) {
             case 'time':
                 return notebooks.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
@@ -225,9 +232,9 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
             default:
                 return notebooks;
         }
-    }, [appData.questionNotebooks, sort]);
+    }, [stableNotebooks, sort]);
 
-    if (isLoadingContent) {
+    if (isLoadingContent || !stableNotebooks) {
         return <div className="text-center p-8">Carregando questões e cadernos...</div>;
     }
 

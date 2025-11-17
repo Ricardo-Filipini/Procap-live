@@ -535,7 +535,7 @@ export const NotebookGridView: React.FC<{
             id = notebook.id;
             name = notebook.name;
 // FIX: Defensively filter question_ids to ensure it's an array of strings before creating a Set, preventing a 'Set<unknown>' type error.
-            const notebookQuestionIds = new Set((notebook.question_ids || []).filter((id): id is string => typeof id === 'string'));
+            const notebookQuestionIds = new Set((notebook.question_ids || []));
             questionCount = notebookQuestionIds.size;
             
             const answeredInThisNotebook = new Set(appData.userQuestionAnswers
@@ -1000,8 +1000,7 @@ export const NotebookDetailView: React.FC<{
         const success = await updateContentComments('questions', commentingOnQuestion.id, updatedComments);
         if (success) {
             const updatedItem = {...commentingOnQuestion, comments: updatedComments };
-            // FIX: Remove 'source' property from the updated item to match the Omit<Question, 'source'> type in the appData state. This fixes a type error that was causing the component to fail to render.
-            const { source: _source, ...updatedItemWithoutSource } = updatedItem;
+            const { source, ...updatedItemWithoutSource } = updatedItem;
             setAppData(prev => ({ ...prev, sources: prev.sources.map((s: Source) => s.id === updatedItem.source_id ? { ...s, questions: s.questions.map(q => q.id === updatedItem.id ? updatedItemWithoutSource : q) } : s) }));
             setCommentingOnQuestion(updatedItem);
         }
