@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { MainContentProps } from '../../types';
 import { AudioSummary, Comment, ContentType, Source } from '../../types';
@@ -8,7 +9,7 @@ import { FontSizeControl, FONT_SIZE_CLASSES } from '../shared/FontSizeControl';
 import { ContentActions } from '../shared/ContentActions';
 import { useContentViewController } from '../../hooks/useContentViewController';
 import { handleInteractionUpdate, handleVoteUpdate } from '../../lib/content';
-import { updateContentComments, addSource, updateSource, supabase, addAudioSummary } from '../../services/supabaseClient';
+import { updateContentComments, addSource, updateSource, supabase, addAudioSummary, getAudioSummaries } from '../../services/supabaseClient';
 import { PlusIcon } from '../Icons';
 
 const AddMediaModal: React.FC<{
@@ -108,19 +109,36 @@ const AddMediaModal: React.FC<{
 };
 
 
-// Fix: Removed the incompatible 'navTarget' override. The correct type is inherited from MainContentProps.
 interface AudioSummariesViewProps extends MainContentProps {
     allItems: (AudioSummary & { user_id: string, created_at: string, source: any})[];
     clearNavTarget: () => void;
 }
 
 export const AudioSummariesView: React.FC<AudioSummariesViewProps> = ({ allItems, appData, setAppData, currentUser, updateUser, navTarget, clearNavTarget }) => {
+    const [isLoadingContent, setIsLoadingContent] = useState(false);
     const [commentingOn, setCommentingOn] = useState<(AudioSummary & { user_id: string, created_at: string}) | null>(null);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [fontSize, setFontSize] = useState(2);
     const contentType: ContentType = 'audio_summary';
     const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
     const [navigationState, setNavigationState] = useState<{ targetId: string; groupKey: string } | null>(null);
+
+    useEffect(() => {
+        const hasAnyAudio = allItems.length > 0;
+        if (appData.sources.length > 0 && !hasAnyAudio) {
+            setIsLoadingContent(true);
+            getAudioSummaries().then(allAudioSummaries => {
+                setAppData(prev => {
+                    const sourcesWithContent = prev.sources.map(source => ({
+                        ...source,
+                        audio_summaries: allAudioSummaries.filter(as => as.source_id === source.id)
+                    }));
+                    return { ...prev, sources: sourcesWithContent };
+                });
+                setIsLoadingContent(false);
+            }).catch(() => setIsLoadingContent(false));
+        }
+    }, [appData.sources, allItems.length, setAppData]);
     
     const {
         sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly,
@@ -269,19 +287,21 @@ export const AudioSummariesView: React.FC<AudioSummariesViewProps> = ({ allItems
                 </div>
             </div>
             
-            <div className="space-y-4">
-                {Array.isArray(processedItems) 
-                    ? processedItems.map(renderItem)
-                    : Object.entries(processedItems as Record<string, any[]>).map(([groupKey, items]: [string, any[]]) => (
-                        <details key={groupKey} open={openGroups.has(groupKey)} onToggle={(e) => { e.preventDefault(); handleToggleGroup(groupKey); }} className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark">
-                             <summary className="text-xl font-bold cursor-pointer">{sort === 'user' ? (appData.users.find(u => u.id === groupKey)?.pseudonym || 'Desconhecido') : groupKey}</summary>
-                            <div className="mt-4 pt-4 border-t border-border-light dark:border-border-dark space-y-4">
-                                {items.map(renderItem)}
-                            </div>
-                        </details>
-                    ))
-                }
-            </div>
+            {isLoadingContent ? <div className="text-center p-8">Carregando mídias...</div> : (
+                <div className="space-y-4">
+                    {Array.isArray(processedItems) 
+                        ? processedItems.map(renderItem)
+                        : Object.entries(processedItems as Record<string, any[]>).map(([groupKey, items]: [string, any[]]) => (
+                            <details key={groupKey} open={openGroups.has(groupKey)} onToggle={(e) => { e.preventDefault(); handleToggleGroup(groupKey); }} className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark">
+                                <summary className="text-xl font-bold cursor-pointer">{sort === 'user' ? (appData.users.find(u => u.id === groupKey)?.pseudonym || 'Desconhecido') : groupKey}</summary>
+                                <div className="mt-4 pt-4 border-t border-border-light dark:border-border-dark space-y-4">
+                                    {items.map(renderItem)}
+                                </div>
+                            </details>
+                        ))
+                    }
+                </div>
+            )}
         </>
     );
 };

@@ -9,7 +9,7 @@ import { FontSizeControl, FONT_SIZE_CLASSES } from '../shared/FontSizeControl';
 import { ContentActions } from '../shared/ContentActions';
 import { useContentViewController } from '../../hooks/useContentViewController';
 import { handleInteractionUpdate, handleVoteUpdate, handleGenerateNewContent } from '../../lib/content';
-import { updateContentComments } from '../../services/supabaseClient';
+import { updateContentComments, getSummaries } from '../../services/supabaseClient';
 
 const renderSummaryWithTooltips = (summary: Summary, fontSizeClass: string) => {
     let content: (string | React.ReactElement)[] = [(summary.content || "")];
@@ -61,19 +61,39 @@ const renderSummaryWithTooltips = (summary: Summary, fontSizeClass: string) => {
     return <div className={`prose dark:prose-invert max-w-none whitespace-pre-wrap ${fontSizeClass}`}>{content}</div>;
 }
 
-// Fix: Removed the incompatible 'navTarget' override. The correct type is inherited from MainContentProps.
 interface SummariesViewProps extends MainContentProps {
     allItems: (Summary & { user_id: string, created_at: string, source: any})[];
     clearNavTarget: () => void;
 }
 
 export const SummariesView: React.FC<SummariesViewProps> = ({ allItems, appData, setAppData, currentUser, updateUser, navTarget, clearNavTarget, setScreenContext }) => {
+    const [isLoadingContent, setIsLoadingContent] = useState(false);
     const [expanded, setExpanded] = useState<string | null>(null);
     const [commentingOn, setCommentingOn] = useState<Summary | null>(null);
     const contentType: ContentType = 'summary';
     const [fontSize, setFontSize] = useState(1);
     const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
     const [navigationState, setNavigationState] = useState<{ targetId: string; groupKey: string } | null>(null);
+
+    useEffect(() => {
+        // Check if any source is missing its summaries
+        const areSummariesLoaded = appData.sources.every(s => s.summaries && s.summaries.length > 0);
+        const hasAnySummary = allItems.length > 0;
+
+        if (appData.sources.length > 0 && !hasAnySummary && !areSummariesLoaded) {
+            setIsLoadingContent(true);
+            getSummaries().then(allSummaries => {
+                setAppData(prev => {
+                    const sourcesWithSummaries = prev.sources.map(source => ({
+                        ...source,
+                        summaries: allSummaries.filter(s => s.source_id === source.id)
+                    }));
+                    return { ...prev, sources: sourcesWithSummaries };
+                });
+                setIsLoadingContent(false);
+            }).catch(() => setIsLoadingContent(false));
+        }
+    }, [appData.sources, allItems.length, setAppData]);
 
     const {
         sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly,
@@ -223,25 +243,27 @@ export const SummariesView: React.FC<SummariesViewProps> = ({ allItems, appData,
             <ContentToolbar {...{ sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly, onAiFilter: handleAiFilter, onGenerate: handleOpenGenerateModal, isFiltering: !!aiFilterIds, onClearFilter: handleClearFilter }} />
             
             <FontSizeControl fontSize={fontSize} setFontSize={setFontSize} className="mb-4" />
-
-            <div className="space-y-4">
-                {Array.isArray(processedItems) 
-                    ? processedItems.map(renderItem)
-                    : Object.entries(processedItems as Record<string, any[]>).map(([groupKey, items]: [string, any[]]) => {
-                        const isHighlighted = groupKey.startsWith('(Apostila)');
-                        return (
-                            <details key={groupKey} open={openGroups.has(groupKey)} className={`bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark transition-all ${isHighlighted ? 'border-primary-light dark:border-primary-dark border-2 shadow-lg' : ''}`}>
-                                <summary onClick={(e) => { e.preventDefault(); handleToggleGroup(groupKey); }} className={`text-xl font-bold cursor-pointer ${isHighlighted ? 'text-primary-light dark:text-primary-dark' : ''}`}>
-                                    {sort === 'user' ? (appData.users.find(u => u.id === groupKey)?.pseudonym || 'Desconhecido') : groupKey}
-                                </summary>
-                                <div className="mt-4 pt-4 border-t border-border-light dark:border-border-dark space-y-4">
-                                    {items.map(renderItem)}
-                                </div>
-                            </details>
-                        )
-                    })
-                }
-            </div>
+            
+            {isLoadingContent ? <div className="text-center p-8">Carregando resumos...</div> : (
+                <div className="space-y-4">
+                    {Array.isArray(processedItems) 
+                        ? processedItems.map(renderItem)
+                        : Object.entries(processedItems as Record<string, any[]>).map(([groupKey, items]: [string, any[]]) => {
+                            const isHighlighted = groupKey.startsWith('(Apostila)');
+                            return (
+                                <details key={groupKey} open={openGroups.has(groupKey)} className={`bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark transition-all ${isHighlighted ? 'border-primary-light dark:border-primary-dark border-2 shadow-lg' : ''}`}>
+                                    <summary onClick={(e) => { e.preventDefault(); handleToggleGroup(groupKey); }} className={`text-xl font-bold cursor-pointer ${isHighlighted ? 'text-primary-light dark:text-primary-dark' : ''}`}>
+                                        {sort === 'user' ? (appData.users.find(u => u.id === groupKey)?.pseudonym || 'Desconhecido') : groupKey}
+                                    </summary>
+                                    <div className="mt-4 pt-4 border-t border-border-light dark:border-border-dark space-y-4">
+                                        {items.map(renderItem)}
+                                    </div>
+                                </details>
+                            )
+                        })
+                    }
+                </div>
+            )}
         </>
     );
 };

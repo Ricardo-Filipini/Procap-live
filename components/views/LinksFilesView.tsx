@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { MainContentProps, LinkFile, Comment, ContentType } from '../../types';
 import { Modal } from '../Modal';
@@ -6,7 +7,7 @@ import { ContentToolbar } from '../shared/ContentToolbar';
 import { ContentActions } from '../shared/ContentActions';
 import { useContentViewController } from '../../hooks/useContentViewController';
 import { handleInteractionUpdate, handleVoteUpdate } from '../../lib/content';
-import { addLinkFile, updateLinkFile, deleteLinkFile, updateContentComments, supabase } from '../../services/supabaseClient';
+import { addLinkFile, updateLinkFile, deleteLinkFile, updateContentComments, supabase, getLinksFiles } from '../../services/supabaseClient';
 import { PlusIcon, PaperClipIcon, TrashIcon, CloudArrowUpIcon, DocumentTextIcon, LinkIcon, DownloadIcon, SparklesIcon } from '../Icons';
 
 const AnkiStudyModal: React.FC<{
@@ -209,11 +210,22 @@ interface LinksFilesViewProps extends MainContentProps {
 
 export const LinksFilesView: React.FC<LinksFilesViewProps> = (props) => {
     const { allItems, appData, setAppData, currentUser, updateUser } = props;
+    const [isLoading, setIsLoading] = useState(false);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [commentingOn, setCommentingOn] = useState<LinkFile | null>(null);
     const [itemToDelete, setItemToDelete] = useState<LinkFile | null>(null);
     const [studyingDeck, setStudyingDeck] = useState<LinkFile | null>(null);
     const contentType: ContentType = 'link_file';
+
+     useEffect(() => {
+        if (appData.linksFiles.length === 0) {
+            setIsLoading(true);
+            getLinksFiles().then(linksFiles => {
+                setAppData(prev => ({ ...prev, linksFiles }));
+                setIsLoading(false);
+            }).catch(() => setIsLoading(false));
+        }
+    }, [appData.linksFiles.length, setAppData]);
 
     const {
         sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly,
@@ -331,6 +343,10 @@ export const LinksFilesView: React.FC<LinksFilesViewProps> = (props) => {
             </div>
         );
     };
+
+    if (isLoading) {
+        return <div className="text-center p-8">Carregando links e arquivos...</div>;
+    }
 
     return (
         <>

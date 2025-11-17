@@ -1,5 +1,5 @@
+
 import React, { useState, useEffect } from 'react';
-// Fix: Correct import path for MainContentProps
 import { MainContentProps } from '../../types';
 import { MindMap, Comment, ContentType } from '../../types';
 import { CommentsModal } from '../shared/CommentsModal';
@@ -8,20 +8,37 @@ import { FontSizeControl, FONT_SIZE_CLASSES } from '../shared/FontSizeControl';
 import { ContentActions } from '../shared/ContentActions';
 import { useContentViewController } from '../../hooks/useContentViewController';
 import { handleInteractionUpdate, handleVoteUpdate } from '../../lib/content';
-import { updateContentComments } from '../../services/supabaseClient';
+import { updateContentComments, getMindMaps } from '../../services/supabaseClient';
 
-// Fix: Removed the incompatible 'navTarget' override. The correct type is inherited from MainContentProps.
 interface MindMapsViewProps extends MainContentProps {
     allItems: (MindMap & { user_id: string, created_at: string, source: any})[];
     clearNavTarget: () => void;
 }
 
 export const MindMapsView: React.FC<MindMapsViewProps> = ({ allItems, appData, setAppData, currentUser, updateUser, navTarget, clearNavTarget }) => {
+    const [isLoadingContent, setIsLoadingContent] = useState(false);
     const [commentingOn, setCommentingOn] = useState<MindMap | null>(null);
     const [fontSize, setFontSize] = useState(2);
     const contentType: ContentType = 'mind_map';
     const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
     const [navigationState, setNavigationState] = useState<{ targetId: string; groupKey: string } | null>(null);
+
+    useEffect(() => {
+        const hasAnyMindMap = allItems.length > 0;
+        if (appData.sources.length > 0 && !hasAnyMindMap) {
+            setIsLoadingContent(true);
+            getMindMaps().then(allMindMaps => {
+                setAppData(prev => {
+                    const sourcesWithContent = prev.sources.map(source => ({
+                        ...source,
+                        mind_maps: allMindMaps.filter(mm => mm.source_id === source.id)
+                    }));
+                    return { ...prev, sources: sourcesWithContent };
+                });
+                setIsLoadingContent(false);
+            }).catch(() => setIsLoadingContent(false));
+        }
+    }, [appData.sources, allItems.length, setAppData]);
 
     const {
         sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly,
@@ -122,22 +139,24 @@ export const MindMapsView: React.FC<MindMapsViewProps> = ({ allItems, appData, s
             <CommentsModal isOpen={!!commentingOn} onClose={() => setCommentingOn(null)} comments={commentingOn?.comments || []} onAddComment={(text) => handleCommentAction('add', {text})} onVoteComment={(commentId, voteType) => handleCommentAction('vote', {commentId, voteType})} contentTitle={commentingOn?.title || ''}/>
             <ContentToolbar {...{ sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly, onAiFilter: handleAiFilter, onGenerate: undefined, isFiltering: !!aiFilterIds, onClearFilter: handleClearFilter }} />
             <FontSizeControl fontSize={fontSize} setFontSize={setFontSize} className="mb-4"/>
-             <div className="space-y-4">
-                {Array.isArray(processedItems) 
-                    ? renderItems(processedItems)
-                    : Object.entries(processedItems as Record<string, any[]>).map(([groupKey, items]: [string, any[]]) => {
-                        const isHighlighted = groupKey.startsWith('(Apostila)');
-                        return (
-                            <details key={groupKey} open={openGroups.has(groupKey)} className={`bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark transition-all ${isHighlighted ? 'border-primary-light dark:border-primary-dark border-2 shadow-lg' : ''}`}>
-                                <summary onClick={(e) => { e.preventDefault(); handleToggleGroup(groupKey); }} className={`text-xl font-bold cursor-pointer ${isHighlighted ? 'text-primary-light dark:text-primary-dark' : ''}`}>{sort === 'user' ? (appData.users.find(u => u.id === groupKey)?.pseudonym || 'Desconhecido') : groupKey}</summary>
-                                <div className="mt-4 pt-4 border-t border-border-light dark:border-border-dark space-y-4">
-                                    {renderItems(items)}
-                                </div>
-                            </details>
-                        )
-                    })
-                }
-            </div>
+             {isLoadingContent ? <div className="text-center p-8">Carregando mapas mentais...</div> : (
+                <div className="space-y-4">
+                    {Array.isArray(processedItems) 
+                        ? renderItems(processedItems)
+                        : Object.entries(processedItems as Record<string, any[]>).map(([groupKey, items]: [string, any[]]) => {
+                            const isHighlighted = groupKey.startsWith('(Apostila)');
+                            return (
+                                <details key={groupKey} open={openGroups.has(groupKey)} className={`bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark transition-all ${isHighlighted ? 'border-primary-light dark:border-primary-dark border-2 shadow-lg' : ''}`}>
+                                    <summary onClick={(e) => { e.preventDefault(); handleToggleGroup(groupKey); }} className={`text-xl font-bold cursor-pointer ${isHighlighted ? 'text-primary-light dark:text-primary-dark' : ''}`}>{sort === 'user' ? (appData.users.find(u => u.id === groupKey)?.pseudonym || 'Desconhecido') : groupKey}</summary>
+                                    <div className="mt-4 pt-4 border-t border-border-light dark:border-border-dark space-y-4">
+                                        {renderItems(items)}
+                                    </div>
+                                </details>
+                            )
+                        })
+                    }
+                </div>
+             )}
         </>
     );
 }

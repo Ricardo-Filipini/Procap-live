@@ -1,5 +1,4 @@
 
-
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { MainContentProps } from '../../types';
 import { CaseStudy, DecisionOption, UserCaseStudyInteraction, Comment, Source, UserContentInteraction } from '../../types';
@@ -7,7 +6,7 @@ import { SparklesIcon, TrashIcon, CheckCircleIcon, XMarkIcon, CloudArrowUpIcon }
 import { Modal } from '../Modal';
 import { generateCaseStudy } from '../../services/geminiService';
 // FIX: Replaced incrementVoteCount with incrementCaseStudyVote for type safety and correctness.
-import { addCaseStudy, upsertUserCaseStudyInteraction, clearCaseStudyProgress, updateContentComments, upsertUserVote, incrementCaseStudyVote, updateUser as supabaseUpdateUser, logXpEvent } from '../../services/supabaseClient';
+import { addCaseStudy, upsertUserCaseStudyInteraction, clearCaseStudyProgress, updateContentComments, upsertUserVote, incrementCaseStudyVote, updateUser as supabaseUpdateUser, logXpEvent, getCaseStudiesData } from '../../services/supabaseClient';
 import { ContentActions } from '../shared/ContentActions';
 import { CommentsModal } from '../shared/CommentsModal';
 import { useContentViewController } from '../../hooks/useContentViewController';
@@ -340,10 +339,25 @@ const CaseStudyDetailView: React.FC<{
 
 export const CaseStudyView: React.FC<MainContentProps> = (props) => {
     const { appData, setAppData, currentUser, updateUser, setProcessingTasks } = props;
+    const [isLoading, setIsLoading] = useState(false);
     const [selectedCaseStudy, setSelectedCaseStudy] = useState<CaseStudy | null>(null);
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [commentingOn, setCommentingOn] = useState<CaseStudy | null>(null);
     const contentType = 'case_study';
+
+    useEffect(() => {
+        if (appData.caseStudies.length === 0) {
+            setIsLoading(true);
+            getCaseStudiesData().then(result => {
+                if ('error' in result) {
+                    console.error("Failed to load case studies data:", result.error);
+                } else {
+                    setAppData(prev => ({ ...prev, ...result }));
+                }
+                setIsLoading(false);
+            });
+        }
+    }, [appData.caseStudies.length, setAppData]);
 
     const {
         sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly,
@@ -405,6 +419,10 @@ export const CaseStudyView: React.FC<MainContentProps> = (props) => {
         
         await upsertUserCaseStudyInteraction(newInteraction);
     };
+
+    if (isLoading) {
+        return <div className="text-center p-8">Carregando estudos de caso...</div>;
+    }
 
     if (selectedCaseStudy) {
         let interaction = appData.userCaseStudyInteractions.find(i => i.user_id === currentUser.id && i.case_study_id === selectedCaseStudy.id);

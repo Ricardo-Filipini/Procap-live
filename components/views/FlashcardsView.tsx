@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { MainContentProps } from '../../types';
 import { Flashcard, Comment, ContentType } from '../../types';
@@ -8,7 +9,7 @@ import { FontSizeControl, FONT_SIZE_CLASSES } from '../shared/FontSizeControl';
 import { ContentActions } from '../shared/ContentActions';
 import { useContentViewController } from '../../hooks/useContentViewController';
 import { handleInteractionUpdate, handleVoteUpdate, handleGenerateNewContent } from '../../lib/content';
-import { updateContentComments } from '../../services/supabaseClient';
+import { updateContentComments, getFlashcards } from '../../services/supabaseClient';
 import { XMarkIcon } from '../Icons';
 
 interface FlashcardsViewProps extends MainContentProps {
@@ -17,6 +18,7 @@ interface FlashcardsViewProps extends MainContentProps {
 }
 
 export const FlashcardsView: React.FC<FlashcardsViewProps> = ({ allItems, appData, setAppData, currentUser, updateUser, navTarget, clearNavTarget }) => {
+    const [isLoadingContent, setIsLoadingContent] = useState(false);
     const [flipped, setFlipped] = useState<string | null>(null);
     const [commentingOn, setCommentingOn] = useState<Flashcard | null>(null);
     const [fontSize, setFontSize] = useState(1);
@@ -24,6 +26,24 @@ export const FlashcardsView: React.FC<FlashcardsViewProps> = ({ allItems, appDat
     const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
     const [navigationState, setNavigationState] = useState<{ targetId: string; groupKey: string } | null>(null);
     const [sourceFilter, setSourceFilter] = useState<string | null>(null);
+    
+    useEffect(() => {
+        const hasAnyFlashcard = allItems.length > 0;
+        if (appData.sources.length > 0 && !hasAnyFlashcard) {
+            setIsLoadingContent(true);
+            getFlashcards().then(allFlashcards => {
+                setAppData(prev => {
+                    const sourcesWithContent = prev.sources.map(source => ({
+                        ...source,
+                        flashcards: allFlashcards.filter(fc => fc.source_id === source.id)
+                    }));
+                    return { ...prev, sources: sourcesWithContent };
+                });
+                setIsLoadingContent(false);
+            }).catch(() => setIsLoadingContent(false));
+        }
+    }, [appData.sources, allItems.length, setAppData]);
+
 
     useEffect(() => {
         if (navTarget?.term) {
@@ -187,22 +207,24 @@ export const FlashcardsView: React.FC<FlashcardsViewProps> = ({ allItems, appDat
             )}
             
             <FontSizeControl fontSize={fontSize} setFontSize={setFontSize} className="mb-4" />
-            <div className="space-y-6">
-                {Array.isArray(itemsToRender) 
-                    ? renderItems(itemsToRender)
-                    : Object.entries(itemsToRender as Record<string, any[]>).map(([groupKey, items]: [string, any[]]) => {
-                        const isHighlighted = groupKey.startsWith('(Apostila)');
-                        return (
-                            <details key={groupKey} open={openGroups.has(groupKey)} className={`bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark transition-all ${isHighlighted ? 'border-primary-light dark:border-primary-dark border-2 shadow-lg' : ''}`}>
-                                 <summary onClick={(e) => { e.preventDefault(); handleToggleGroup(groupKey); }} className={`text-xl font-bold cursor-pointer ${isHighlighted ? 'text-primary-light dark:text-primary-dark' : ''}`}>{sort === 'user' ? (appData.users.find(u => u.id === groupKey)?.pseudonym || 'Desconhecido') : groupKey}</summary>
-                                <div className="mt-4 pt-4 border-t border-border-light dark:border-border-dark space-y-4">
-                                   {renderItems(items)}
-                                </div>
-                            </details>
-                        )
-                    })
-                }
-            </div>
+            {isLoadingContent ? <div className="text-center p-8">Carregando flashcards...</div> : (
+                <div className="space-y-6">
+                    {Array.isArray(itemsToRender) 
+                        ? renderItems(itemsToRender)
+                        : Object.entries(itemsToRender as Record<string, any[]>).map(([groupKey, items]: [string, any[]]) => {
+                            const isHighlighted = groupKey.startsWith('(Apostila)');
+                            return (
+                                <details key={groupKey} open={openGroups.has(groupKey)} className={`bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark transition-all ${isHighlighted ? 'border-primary-light dark:border-primary-dark border-2 shadow-lg' : ''}`}>
+                                    <summary onClick={(e) => { e.preventDefault(); handleToggleGroup(groupKey); }} className={`text-xl font-bold cursor-pointer ${isHighlighted ? 'text-primary-light dark:text-primary-dark' : ''}`}>{sort === 'user' ? (appData.users.find(u => u.id === groupKey)?.pseudonym || 'Desconhecido') : groupKey}</summary>
+                                    <div className="mt-4 pt-4 border-t border-border-light dark:border-border-dark space-y-4">
+                                    {renderItems(items)}
+                                    </div>
+                                </details>
+                            )
+                        })
+                    }
+                </div>
+            )}
         </>
     );
 };

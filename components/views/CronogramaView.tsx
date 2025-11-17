@@ -1,9 +1,10 @@
-import React, { useState, useMemo } from 'react';
+
+import React, { useState, useMemo, useEffect } from 'react';
 import { ScheduleEvent, Comment, ContentType, MainContentProps } from '../../types';
 import { CommentsModal } from '../shared/CommentsModal';
 import { ContentActions } from '../shared/ContentActions';
 import { handleInteractionUpdate, handleVoteUpdate } from '../../lib/content';
-import { updateContentComments } from '../../services/supabaseClient';
+import { updateContentComments, getScheduleEvents } from '../../services/supabaseClient';
 import { FontSizeControl, FONT_SIZE_CLASSES_LARGE } from '../shared/FontSizeControl';
 
 interface CronogramaViewProps extends MainContentProps {}
@@ -34,7 +35,18 @@ export const CronogramaView: React.FC<CronogramaViewProps> = (props) => {
     const [selectedDate, setSelectedDate] = useState<Date>(procapStartDate);
     const [commentingOn, setCommentingOn] = useState<ScheduleEvent | null>(null);
     const [fontSize, setFontSize] = useState(0);
+    const [isLoading, setIsLoading] = useState(false);
     const contentType: ContentType = 'cronograma';
+
+    useEffect(() => {
+        if (appData.scheduleEvents.length === 0) {
+            setIsLoading(true);
+            getScheduleEvents().then(events => {
+                setAppData(prev => ({ ...prev, scheduleEvents: events }));
+                setIsLoading(false);
+            }).catch(() => setIsLoading(false));
+        }
+    }, [appData.scheduleEvents.length, setAppData]);
 
     const scheduleByDate = useMemo(() => {
         return scheduleEvents.reduce((acc, event) => {
@@ -113,6 +125,10 @@ export const CronogramaView: React.FC<CronogramaViewProps> = (props) => {
         const dateString = selectedDate.toISOString().split('T')[0];
         return (scheduleByDate[dateString] || []).sort((a,b) => (a.startTime || '').localeCompare(b.startTime || ''));
     }, [selectedDate, scheduleByDate]);
+
+    if (isLoading) {
+        return <div className="text-center p-8">Carregando cronograma...</div>;
+    }
 
     return (
         <div className={FONT_SIZE_CLASSES_LARGE[fontSize]}>

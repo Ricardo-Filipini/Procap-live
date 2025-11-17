@@ -8,23 +8,43 @@ import { ContentToolbar } from '../shared/ContentToolbar';
 import { checkAndAwardAchievements } from '../../lib/achievements';
 import { handleInteractionUpdate, handleVoteUpdate } from '../../lib/content';
 // FIX: Replaced incrementVoteCount with incrementNotebookVote for type safety and correctness.
-import { addQuestionNotebook, upsertUserVote, incrementNotebookVote, updateContentComments, updateUser as supabaseUpdateUser, upsertUserQuestionAnswer, clearNotebookAnswers, supabase } from '../../services/supabaseClient';
+import { addQuestionNotebook, upsertUserVote, incrementNotebookVote, updateContentComments, updateUser as supabaseUpdateUser, upsertUserQuestionAnswer, clearNotebookAnswers, supabase, getSourcesWithContent } from '../../services/supabaseClient';
 import { NotebookDetailView, NotebookGridView } from './QuestionsViewPart2';
 
 type SortOption = 'temp' | 'time' | 'subject' | 'user' | 'source';
 
 // Fix: Removed the incompatible 'navTarget' override. The correct type is inherited from MainContentProps.
 interface QuestionsViewProps extends MainContentProps {
-    allItems: (Question & { user_id: string, created_at: string, source: any})[];
     clearNavTarget: () => void;
 }
 
-export const QuestionsView: React.FC<QuestionsViewProps> = ({ allItems, appData, setAppData, currentUser, updateUser, navTarget, clearNavTarget, setScreenContext }) => {
+export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppData, currentUser, updateUser, navTarget, clearNavTarget, setScreenContext }) => {
+    const [isLoadingContent, setIsLoadingContent] = useState(false);
     const [selectedNotebook, setSelectedNotebook] = useState<QuestionNotebook | 'all' | null>(null);
     const [commentingOnNotebook, setCommentingOnNotebook] = useState<QuestionNotebook | null>(null);
     const [sort, setSort] = useState<SortOption>('temp');
     const [questionIdToFocus, setQuestionIdToFocus] = useState<string | null>(null);
     const [restoredFromStorage, setRestoredFromStorage] = useState(false);
+
+    const allItems = useMemo(() => appData.sources.flatMap(s => (s.questions || []).map(q => ({ ...q, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
+    
+    const handleFocusConsumed = () => {
+        setQuestionIdToFocus(null);
+    };
+    
+    useEffect(() => {
+        // Lazy load sources and their content if not already present
+        if (appData.sources.length === 0) {
+            setIsLoadingContent(true);
+            getSourcesWithContent().then(sources => {
+                setAppData(prev => ({ ...prev, sources }));
+                setIsLoadingContent(false);
+            }).catch(e => {
+                console.error("Failed to load sources with content", e);
+                setIsLoadingContent(false);
+            });
+        }
+    }, [appData.sources.length, setAppData]);
     
     // Restore from localStorage on initial mount
     useEffect(() => {
@@ -197,6 +217,9 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ allItems, appData,
         }
     }, [appData.questionNotebooks, sort]);
 
+    if (isLoadingContent) {
+        return <div className="text-center p-8">Carregando questões e cadernos...</div>;
+    }
 
     if (selectedNotebook) {
         return <NotebookDetailView 
@@ -211,6 +234,7 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ allItems, appData,
                 setQuestionIdToFocus(null);
             }}
             questionIdToFocus={questionIdToFocus}
+            onFocusConsumed={handleFocusConsumed}
             setScreenContext={setScreenContext}
         />
     }

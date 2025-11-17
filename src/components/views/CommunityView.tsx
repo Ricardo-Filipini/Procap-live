@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { AppData, User, ChatMessage, MainContentProps, XpEvent } from '../../types';
 import { PaperAirplaneIcon, MinusIcon, PlusIcon, PlayIcon, PauseIcon, ArrowPathIcon } from '../Icons';
@@ -144,7 +145,7 @@ const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dis
         }
 
         const message = appData.chatMessages.find(m => m.id === messageId);
-        const author = message ? appData.users.find(u => u.pseudonym === message.author) : null;
+        const author = message ? appData.users.find((u): u is User => !!u && u.pseudonym === message.author) : null;
         const isOwnContent = !author || author.id === currentUser.id;
 
         setAppData(prev => {
@@ -410,34 +411,33 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[]; them
                     }
                 }
             });
-
-            nextDataMap.forEach((user, userId) => {
-                const targetXp = targetMap.get(userId) ?? 0;
-                // FIX: Add type assertion to ensure user.xp is treated as a number.
-                const diff = targetXp - (user as any).xp;
             
-                if (Math.abs(diff) < 0.5) { // Threshold to stop animation and snap
-                    // FIX: Add type assertion to ensure user.xp is treated as a number.
-                    if ((user as any).xp !== targetXp) {
-                        // FIX: Add type assertion to ensure user.xp is treated as a number.
-                        (user as any).xp = targetXp;
+            // FIX: Explicitly typed `user` to avoid type errors during arithmetic operations.
+            nextDataMap.forEach((user: User & { xp: number | string }, userId) => {
+                const targetXp = targetMap.get(userId) ?? 0;
+                // FIX: Used Number() to ensure `user.xp` is treated as a number for arithmetic operations.
+                const currentXp = Number(user.xp) || 0;
+                const diff = targetXp - currentXp;
+            
+                if (Math.abs(diff) < 0.5) {
+                    if (currentXp !== targetXp) {
+                        user.xp = targetXp;
                         hasChanged = true;
                     }
                 } else {
-                    // Move a fraction of the distance each frame for a smooth animation
                     const increment = diff * 0.1;
-                    // FIX: Add type assertion to ensure user.xp is treated as a number.
-                    (user as any).xp += increment;
+                    user.xp = currentXp + increment;
                     hasChanged = true;
                 }
             });
 
             if (hasChanged) {
                 const sortedNextData = Array.from(nextDataMap.values())
-                    // FIX: Add type assertions to ensure a.xp and b.xp are treated as numbers.
-                    .sort((a, b) => (b as any).xp - (a as any).xp)
+                    // FIX: Explicitly cast types in sort to 'any' to prevent 'property does not exist on unknown' errors.
+                    .sort((a: any, b: any) => (Number(b.xp) || 0) - (Number(a.xp) || 0))
                     .slice(0, 15);
-                setDisplayedRaceData(sortedNextData as any);
+                // FIX: Cast the sorted data to the correct type for the state update.
+                setDisplayedRaceData(sortedNextData as (User & { color: string; xp: number })[]);
             }
         }, 50);
 
@@ -583,8 +583,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
         if (isRaceChartActive) return [];
 
         if (leaderboardFilter === 'geral') {
-            // FIX: Add explicit User type to sort parameters to resolve type inference issue.
-            return [...appData.users].sort((a: User, b: User) => b.xp - a.xp);
+            return [...appData.users].sort((a: User, b: User) => (Number(b.xp) || 0) - (Number(a.xp) || 0));
         }
 
         const calculateXpFromEvents = (events: typeof appData.xp_events) => {
@@ -593,7 +592,6 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
                 const currentXp = userXpMap.get(event.user_id) || 0;
                 userXpMap.set(event.user_id, currentXp + event.amount);
             });
-            // FIX: Ensure returned users are correctly typed as User.
             return appData.users.filter((user): user is User => !!user).map((user: User) => ({
                 ...user,
                 xp: userXpMap.get(user.id) || 0,
@@ -613,8 +611,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
         const xpEventsInPeriod = appData.xp_events.filter(event => new Date(event.created_at) >= startTime);
         const userXpInPeriod = calculateXpFromEvents(xpEventsInPeriod);
 
-        // FIX: Add explicit User type to sort parameters.
-        return userXpInPeriod.filter(user => user.xp > 0).sort((a: User, b: User) => b.xp - a.xp);
+        return userXpInPeriod.filter(user => user.xp > 0).sort((a: User, b: User) => (Number(b.xp) || 0) - (Number(a.xp) || 0));
 
     }, [appData.users, appData.xp_events, leaderboardFilter, isRaceChartActive]);
     
