@@ -1,7 +1,7 @@
 
 
-import React, { useState, useMemo, useEffect } from 'react';
-import { Theme, View, AppData, User, MainContentProps } from '../types';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { Theme, View, AppData, User, MainContentProps, Source } from '../types';
 import { VIEWS } from '../constants';
 import { Header } from './shared/Header';
 import { CheckCircleIcon, XCircleIcon, XMarkIcon } from './Icons';
@@ -22,16 +22,11 @@ import { CronogramaView } from './views/CronogramaView';
 import { LinksFilesView } from './views/LinksFilesView';
 import { ContagemView } from './views/ContagemView';
 
+import { getSummaries, getSourcesBase, getFlashcards, getMindMaps, getAudioSummaries, getLinksFiles, getCaseStudiesData, getScheduleEvents, getUserMoods, getQuestions, getQuestionNotebooks, getUserQuestionAnswers, getUserNotebookInteractions } from '../services/supabaseClient';
+
 
 export const MainContent: React.FC<MainContentProps> = (props) => {
-  const { activeView, setActiveView, appData, theme, setTheme, onToggleLiveAgent, isLiveAgentActive, onToggleAgentSettings, navTarget, setNavTarget, setScreenContext, liveAgentStatus, processingTasks, setProcessingTasks } = props;
-
-  const allSummaries = useMemo(() => appData.sources.flatMap(s => (s.summaries || []).map(summary => ({ ...summary, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
-  const allFlashcards = useMemo(() => appData.sources.flatMap(s => (s.flashcards || []).map(fc => ({ ...fc, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
-  const allQuestions = useMemo(() => appData.sources.flatMap(s => (s.questions || []).map(q => ({ ...q, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
-  const allMindMaps = useMemo(() => appData.sources.flatMap(s => (s.mind_maps || []).map(mm => ({ ...mm, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
-  const allAudioSummaries = useMemo(() => appData.sources.flatMap(s => (s.audio_summaries || []).map(as => ({ ...as, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
-  const allLinksFiles = useMemo(() => appData.linksFiles.map(lf => ({...lf, user_id: lf.user_id, created_at: lf.created_at})), [appData.linksFiles]);
+  const { activeView, setActiveView, appData, setAppData, currentUser, theme, setTheme, onToggleLiveAgent, isLiveAgentActive, onToggleAgentSettings, navTarget, setNavTarget, setScreenContext, liveAgentStatus, processingTasks, setProcessingTasks } = props;
 
   useEffect(() => {
     const successTasks = processingTasks.filter(t => t.status === 'success');
@@ -42,6 +37,154 @@ export const MainContent: React.FC<MainContentProps> = (props) => {
         return () => clearTimeout(timer);
     }
   }, [processingTasks, setProcessingTasks]);
+
+    // Idle pre-fetching logic
+    const idleTimerRef = useRef<number | null>(null);
+    const prefetchedViewsRef = useRef(new Set<string>());
+
+    useEffect(() => {
+        const IDLE_TIMEOUT = 8000; // 8 seconds of inactivity
+
+        // Helper function for merging
+        const mergeSourcesWithContent = (prev: AppData, newSources: Source[], newContent: any[], contentType: 'summaries' | 'flashcards' | 'questions' | 'mind_maps' | 'audio_summaries'): AppData => {
+            const contentBySource = new Map<string, any[]>();
+            newContent.forEach(item => {
+                const list = contentBySource.get(item.source_id) || [];
+                list.push(item);
+                contentBySource.set(item.source_id, list);
+            });
+
+            const sourceMap = new Map(prev.sources.map(s => [s.id, JSON.parse(JSON.stringify(s))]));
+            newSources.forEach(source => {
+                if (!sourceMap.has(source.id)) {
+                    sourceMap.set(source.id, { ...source, summaries: [], flashcards: [], questions: [], mind_maps: [], audio_summaries: [] });
+                }
+            });
+
+            sourceMap.forEach(source => {
+                const contentForSource = contentBySource.get(source.id);
+                if (contentForSource) {
+                    (source[contentType] as any[]) = contentForSource;
+                } else if (!source[contentType]) {
+                    (source[contentType] as any[]) = [];
+                }
+            });
+            
+            return { ...prev, sources: Array.from(sourceMap.values()) };
+        };
+
+
+        const prefetchData = async () => {
+            console.log("User is idle, starting pre-fetch...");
+
+            const viewsToPrefetch = VIEWS.filter(v => v.name !== activeView.name && !prefetchedViewsRef.current.has(v.name));
+
+            for (const view of viewsToPrefetch) {
+                if (prefetchedViewsRef.current.has(view.name)) continue;
+                
+                let dataFetched = false;
+                
+                try {
+                    switch (view.name) {
+                        case 'Resumos':
+                            if (!appData.sources.some(s => s.summaries?.length > 0)) {
+                                const [sources, summaries] = await Promise.all([getSourcesBase(), getSummaries()]);
+                                setAppData(prev => mergeSourcesWithContent(prev, sources, summaries, 'summaries'));
+                                dataFetched = true;
+                            }
+                            break;
+                        case 'Flashcards':
+                             if (!appData.sources.some(s => s.flashcards?.length > 0)) {
+                                const [sources, flashcards] = await Promise.all([getSourcesBase(), getFlashcards()]);
+                                setAppData(prev => mergeSourcesWithContent(prev, sources, flashcards, 'flashcards'));
+                                dataFetched = true;
+                            }
+                            break;
+                        case 'Mapas Mentais':
+                            if (!appData.sources.some(s => s.mind_maps?.length > 0)) {
+                                const [sources, mindMaps] = await Promise.all([getSourcesBase(), getMindMaps()]);
+                                setAppData(prev => mergeSourcesWithContent(prev, sources, mindMaps, 'mind_maps'));
+                                dataFetched = true;
+                            }
+                            break;
+                         case 'Mídia':
+                            if (!appData.sources.some(s => s.audio_summaries?.length > 0)) {
+                                const [sources, audioSummaries] = await Promise.all([getSourcesBase(), getAudioSummaries()]);
+                                setAppData(prev => mergeSourcesWithContent(prev, sources, audioSummaries, 'audio_summaries'));
+                                dataFetched = true;
+                            }
+                            break;
+                        case 'Questões':
+                             if (!appData.sources.some(s => s.questions?.length > 0) || appData.questionNotebooks.length === 0) {
+                                const [notebooks, questions, sources] = await Promise.all([getQuestionNotebooks(), getQuestions(), getSourcesBase()]);
+                                setAppData(prev => {
+                                    const withNotebooks = { ...prev, questionNotebooks: notebooks };
+                                    return mergeSourcesWithContent(withNotebooks, sources, questions, 'questions');
+                                });
+                                dataFetched = true;
+                            }
+                            break;
+                        case 'Links/Arquivos':
+                            if (appData.linksFiles.length === 0) {
+                                const linksFiles = await getLinksFiles();
+                                setAppData(prev => ({ ...prev, linksFiles }));
+                                dataFetched = true;
+                            }
+                            break;
+                        case 'Estudo de Caso':
+                            if (appData.caseStudies.length === 0) {
+                                const { caseStudies, userCaseStudyInteractions } = await getCaseStudiesData();
+                                if (caseStudies) setAppData(prev => ({...prev, caseStudies, userCaseStudyInteractions}));
+                                dataFetched = true;
+                            }
+                            break;
+                         case 'Cronograma':
+                            if (appData.scheduleEvents.length === 0) {
+                                const scheduleEvents = await getScheduleEvents();
+                                setAppData(prev => ({ ...prev, scheduleEvents }));
+                                dataFetched = true;
+                            }
+                            break;
+                        case 'Contagem':
+                             if (appData.userMoods.length === 0) {
+                                const userMoods = await getUserMoods();
+                                setAppData(prev => ({...prev, userMoods}));
+                                dataFetched = true;
+                            }
+                            break;
+
+                    }
+
+                    if (dataFetched) {
+                         console.log(`Successfully prefetched data for ${view.name}`);
+                         prefetchedViewsRef.current.add(view.name);
+                    } else {
+                        prefetchedViewsRef.current.add(view.name);
+                    }
+                } catch (e) {
+                    console.error(`Failed to prefetch data for ${view.name}`, e);
+                }
+            }
+        };
+
+        const resetIdleTimer = () => {
+            if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+            idleTimerRef.current = window.setTimeout(prefetchData, IDLE_TIMEOUT);
+        };
+
+        window.addEventListener('mousemove', resetIdleTimer, { passive: true });
+        window.addEventListener('keydown', resetIdleTimer, { passive: true });
+        window.addEventListener('scroll', resetIdleTimer, { passive: true });
+        resetIdleTimer();
+
+        return () => {
+            if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+            window.removeEventListener('mousemove', resetIdleTimer);
+            window.removeEventListener('keydown', resetIdleTimer);
+            window.removeEventListener('scroll', resetIdleTimer);
+        };
+    }, [activeView.name, appData, setAppData]);
+
 
   const handleNavigation = (viewName: string, term: string, id?: string) => {
     const targetView = VIEWS.find(v => v.name === viewName);
@@ -66,17 +209,17 @@ export const MainContent: React.FC<MainContentProps> = (props) => {
       case 'Contagem':
         return <ContagemView {...viewProps} />;
       case 'Resumos':
-        return <SummariesView {...viewProps} allItems={allSummaries} />;
+        return <SummariesView {...viewProps} />;
       case 'Flashcards':
-        return <FlashcardsView {...viewProps} allItems={allFlashcards} />;
+        return <FlashcardsView {...viewProps} />;
       case 'Questões':
-        return <QuestionsView {...viewProps} allItems={allQuestions} />;
+        return <QuestionsView {...viewProps} />;
       case 'Links/Arquivos':
-        return <LinksFilesView {...viewProps} allItems={allLinksFiles} />;
+        return <LinksFilesView {...viewProps} />;
       case 'Mapas Mentais':
-          return <MindMapsView {...viewProps} allItems={allMindMaps} />;
+          return <MindMapsView {...viewProps} />;
       case 'Mídia':
-          return <AudioSummariesView {...viewProps} allItems={allAudioSummaries} />;
+          return <AudioSummariesView {...viewProps} />;
       case 'Estudo de Caso':
           return <CaseStudyView {...props} />;
       case 'Cronograma':

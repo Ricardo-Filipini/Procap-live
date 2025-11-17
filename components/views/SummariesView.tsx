@@ -1,7 +1,8 @@
 
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { MainContentProps } from '../../types';
-import { Summary, Comment, ContentType } from '../../types';
+import { Summary, Comment, ContentType, Source } from '../../types';
 import { CommentsModal } from '../shared/CommentsModal';
 import { GenerateContentModal } from '../shared/GenerateContentModal';
 import { ContentToolbar } from '../shared/ContentToolbar';
@@ -9,7 +10,7 @@ import { FontSizeControl, FONT_SIZE_CLASSES } from '../shared/FontSizeControl';
 import { ContentActions } from '../shared/ContentActions';
 import { useContentViewController } from '../../hooks/useContentViewController';
 import { handleInteractionUpdate, handleVoteUpdate, handleGenerateNewContent } from '../../lib/content';
-import { updateContentComments, getSummaries } from '../../services/supabaseClient';
+import { updateContentComments, getSummaries, getSourcesBase } from '../../services/supabaseClient';
 
 const renderSummaryWithTooltips = (summary: Summary, fontSizeClass: string) => {
     let content: (string | React.ReactElement)[] = [(summary.content || "")];
@@ -62,11 +63,10 @@ const renderSummaryWithTooltips = (summary: Summary, fontSizeClass: string) => {
 }
 
 interface SummariesViewProps extends MainContentProps {
-    allItems: (Summary & { user_id: string, created_at: string, source: any})[];
     clearNavTarget: () => void;
 }
 
-export const SummariesView: React.FC<SummariesViewProps> = ({ allItems, appData, setAppData, currentUser, updateUser, navTarget, clearNavTarget, setScreenContext }) => {
+export const SummariesView: React.FC<SummariesViewProps> = ({ appData, setAppData, currentUser, updateUser, navTarget, clearNavTarget, setScreenContext }) => {
     const [isLoadingContent, setIsLoadingContent] = useState(false);
     const [expanded, setExpanded] = useState<string | null>(null);
     const [commentingOn, setCommentingOn] = useState<Summary | null>(null);
@@ -75,26 +75,45 @@ export const SummariesView: React.FC<SummariesViewProps> = ({ allItems, appData,
     const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
     const [navigationState, setNavigationState] = useState<{ targetId: string; groupKey: string } | null>(null);
 
+    const allItems = useMemo(() => appData.sources.flatMap(s => (s.summaries || []).map(summary => ({ ...summary, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
+
     useEffect(() => {
-        // Check if any source is missing its summaries
-        const areSummariesLoaded = appData.sources.every(s => s.summaries && s.summaries.length > 0);
-        const hasAnySummary = allItems.length > 0;
-
-        if (appData.sources.length > 0 && !hasAnySummary && !areSummariesLoaded) {
+        const hasData = appData.sources.some(s => s.summaries?.length > 0);
+    
+        if (!hasData) {
             setIsLoadingContent(true);
-            getSummaries().then(allSummaries => {
+            Promise.all([
+                getSourcesBase(),
+                getSummaries()
+            ]).then(([sources, summaries]) => {
                 setAppData(prev => {
-                    const sourcesWithSummaries = prev.sources.map(source => ({
-                        ...source,
-                        summaries: allSummaries.filter(s => s.source_id === source.id)
-                    }));
-                    return { ...prev, sources: sourcesWithSummaries };
-                });
-                setIsLoadingContent(false);
-            }).catch(() => setIsLoadingContent(false));
-        }
-    }, [appData.sources, allItems.length, setAppData]);
+                    const contentBySource = new Map<string, Summary[]>();
+                    summaries.forEach((item: Summary) => {
+                        const list = contentBySource.get(item.source_id) || [];
+                        list.push(item);
+                        contentBySource.set(item.source_id, list);
+                    });
+    
+                    const newSources = [...prev.sources];
+                    const sourceMap = new Map(newSources.map(s => [s.id, s]));
 
+                    sources.forEach(source => {
+                        if (!sourceMap.has(source.id)) {
+                            sourceMap.set(source.id, source);
+                        }
+                    });
+
+                    sourceMap.forEach(source => {
+                        source.summaries = contentBySource.get(source.id) || source.summaries || [];
+                    });
+                    
+                    return { ...prev, sources: Array.from(sourceMap.values()) };
+                });
+            }).catch(e => console.error(`Failed to load summaries`, e))
+              .finally(() => setIsLoadingContent(false));
+        }
+    }, [appData.sources, setAppData]);
+    
     const {
         sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly,
         aiFilterIds, isFiltering, isGenerating, setIsGenerating,
@@ -202,7 +221,7 @@ export const SummariesView: React.FC<SummariesViewProps> = ({ allItems, appData,
         const success = await updateContentComments('summaries', commentingOn.id, updatedComments);
         if (success) {
             const updatedItem = {...commentingOn, comments: updatedComments };
-            setAppData(prev => ({ ...prev, sources: prev.sources.map(s => s.id === updatedItem.source_id ? { ...s, summaries: s.summaries.map(sum => sum.id === updatedItem.id ? updatedItem : sum) } : s) }));
+            setAppData(prev => ({ ...prev, sources: prev.sources.map((s: Source) => s.id === updatedItem.source_id ? { ...s, summaries: s.summaries.map(sum => sum.id === updatedItem.id ? updatedItem : sum) } : s) }));
             setCommentingOn(updatedItem);
         }
     };

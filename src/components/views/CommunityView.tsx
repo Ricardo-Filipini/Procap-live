@@ -1,10 +1,11 @@
 
 
+
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { AppData, User, ChatMessage, MainContentProps, XpEvent } from '../../types';
 import { PaperAirplaneIcon, MinusIcon, PlusIcon, PlayIcon, PauseIcon, ArrowPathIcon } from '../Icons';
 import { FontSizeControl, FONT_SIZE_CLASSES } from '../shared/FontSizeControl';
-import { addChatMessage, supabase, upsertUserVote, incrementMessageVote, updateUser as supabaseUpdateUser, logXpEvent } from '../../services/supabaseClient';
+import { addChatMessage, supabase, upsertUserVote, incrementMessageVote, updateUser as supabaseUpdateUser, logXpEvent, getCommunityData } from '../../services/supabaseClient';
 import { getSimpleChatResponse } from '../../services/geminiService';
 
 const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dispatch<React.SetStateAction<AppData>>; onNavigate: (viewName: string, term: string) => void;}> = ({currentUser, appData, setAppData, onNavigate}) => {
@@ -24,7 +25,8 @@ const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dis
         }
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [appData.chatMessages]);
-    
+
+
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             if (votePopupRef.current && !votePopupRef.current.contains(event.target as Node)) {
@@ -416,7 +418,7 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[]; them
             nextDataMap.forEach((user: User & { color: string; xp: number }, userId) => {
                 const targetXp = targetMap.get(userId) ?? 0;
                 // FIX: `user.xp` is now correctly typed as number.
-                const currentXp = user.xp || 0;
+                const currentXp = Number(user.xp) || 0;
                 const diff = targetXp - currentXp;
             
                 if (Math.abs(diff) < 0.5) {
@@ -434,7 +436,7 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[]; them
             if (hasChanged) {
                 const sortedNextData = Array.from(nextDataMap.values())
                     // FIX: With correct types, direct subtraction is safe and no 'any' is needed.
-                    .sort((a, b) => b.xp - a.xp)
+                    .sort((a, b) => (Number(b.xp) || 0) - (Number(a.xp) || 0))
                     .slice(0, 15);
                 setDisplayedRaceData(sortedNextData);
             }
@@ -577,6 +579,23 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[]; them
 export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUser, setAppData, onNavigate, theme }) => {
     const [leaderboardFilter, setLeaderboardFilter] = useState<'geral' | 'diaria' | 'periodo' | 'hora'>('geral');
     const [isRaceChartActive, setIsRaceChartActive] = useState(false);
+    const [isLoadingContent, setIsLoadingContent] = useState(false);
+
+    useEffect(() => {
+        const dataLoaded = appData.chatMessages.length > 0 && appData.xp_events.length > 0;
+        if (!dataLoaded) {
+            setIsLoadingContent(true);
+            getCommunityData().then(result => {
+                if ('error' in result) {
+                    console.error("Failed to load community data:", result.error);
+                } else {
+                    setAppData(prev => ({ ...prev, ...result }));
+                }
+                setIsLoadingContent(false);
+            });
+        }
+    }, [appData.chatMessages.length, appData.xp_events.length, setAppData]);
+
 
     const filteredLeaderboard = useMemo(() => {
         if (isRaceChartActive) return [];
@@ -652,9 +671,10 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
                     </div>
                 </div>
                 {isRaceChartActive ? (
-                    <LeaderboardRaceChart users={appData.users} xp_events={appData.xp_events} theme={theme!} />
+                    isLoadingContent ? <div className="text-center p-8">Carregando dados da comunidade...</div> : <LeaderboardRaceChart users={appData.users} xp_events={appData.xp_events} theme={theme!} />
                 ) : (
                     <div className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-md border border-border-light dark:border-border-dark flex-1 overflow-y-auto h-[33rem] lg:h-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                        {isLoadingContent ? <div className="text-center p-8">Carregando...</div> :
                         <ul className="space-y-3">
                             {filteredLeaderboard.length > 0 ? filteredLeaderboard.map((user, index) => (
                                 <li key={user.id} className={`flex items-center justify-between p-2 rounded-md ${user.id === currentUser.id ? 'bg-primary-light/20' : 'bg-background-light dark:bg-background-dark'}`}>
@@ -670,11 +690,12 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
                                 </div>
                             )}
                         </ul>
+                        }
                     </div>
                 )}
             </div>
             <div className="lg:col-span-1 h-full">
-                <Chat currentUser={currentUser} appData={appData} setAppData={setAppData} onNavigate={onNavigate} />
+                 {isLoadingContent ? <div className="text-center p-8">Carregando chat...</div> : <Chat currentUser={currentUser} appData={appData} setAppData={setAppData} onNavigate={onNavigate} /> }
             </div>
         </div>
     );

@@ -1,5 +1,7 @@
 
 
+
+
 import React from 'react';
 
 export type Theme = 'light' | 'dark';
@@ -135,7 +137,7 @@ export interface LinkFile {
     url?: string;
     file_path?: string;
     file_name?: string;
-// FIX: Added 'is_anki_deck' to support new study functionality.
+    // FIX: Added 'is_anki_deck' to support new study functionality.
     is_anki_deck?: boolean;
     created_at: string;
     hot_votes: number;

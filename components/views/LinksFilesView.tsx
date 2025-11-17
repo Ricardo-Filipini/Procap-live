@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { MainContentProps, LinkFile, Comment, ContentType } from '../../types';
 import { Modal } from '../Modal';
 import { CommentsModal } from '../shared/CommentsModal';
@@ -204,13 +204,12 @@ const AddLinkFileModal: React.FC<{
 
 
 interface LinksFilesViewProps extends MainContentProps {
-    allItems: (LinkFile & { user_id: string, created_at: string})[];
     clearNavTarget: () => void;
 }
 
 export const LinksFilesView: React.FC<LinksFilesViewProps> = (props) => {
-    const { allItems, appData, setAppData, currentUser, updateUser } = props;
-    const [isLoading, setIsLoading] = useState(false);
+    const { appData, setAppData, currentUser, updateUser } = props;
+    const [isLoadingContent, setIsLoadingContent] = useState(false);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [commentingOn, setCommentingOn] = useState<LinkFile | null>(null);
     const [itemToDelete, setItemToDelete] = useState<LinkFile | null>(null);
@@ -219,13 +218,15 @@ export const LinksFilesView: React.FC<LinksFilesViewProps> = (props) => {
 
      useEffect(() => {
         if (appData.linksFiles.length === 0) {
-            setIsLoading(true);
+            setIsLoadingContent(true);
             getLinksFiles().then(linksFiles => {
                 setAppData(prev => ({ ...prev, linksFiles }));
-                setIsLoading(false);
-            }).catch(() => setIsLoading(false));
+                setIsLoadingContent(false);
+            }).catch(() => setIsLoadingContent(false));
         }
     }, [appData.linksFiles.length, setAppData]);
+    
+    const allItems = useMemo(() => appData.linksFiles.map(lf => ({...lf, user_id: lf.user_id, created_at: lf.created_at})), [appData.linksFiles]);
 
     const {
         sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly,
@@ -344,7 +345,7 @@ export const LinksFilesView: React.FC<LinksFilesViewProps> = (props) => {
         );
     };
 
-    if (isLoading) {
+    if (isLoadingContent) {
         return <div className="text-center p-8">Carregando links e arquivos...</div>;
     }
 

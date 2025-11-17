@@ -1,5 +1,7 @@
 
 
+
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { MainContent } from './components/MainContent';
@@ -372,6 +374,5 @@ const LoginScreen: React.FC<{ onLogin: (pseudonym: string, password?: string) =>
     </div>
   );
 };
-
 
 export default App;

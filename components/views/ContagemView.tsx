@@ -29,7 +29,7 @@ const CustomYAxisTick: React.FC<any> = ({ x, y, payload }) => (
 
 export const ContagemView: React.FC<MainContentProps> = ({ appData, setAppData, currentUser }) => {
     const [now, setNow] = useState(new Date());
-    const [isLoading, setIsLoading] = useState(false);
+    const [isLoadingContent, setIsLoadingContent] = useState(false);
 
     useEffect(() => {
         const timer = setInterval(() => setNow(new Date()), 1000);
@@ -39,11 +39,11 @@ export const ContagemView: React.FC<MainContentProps> = ({ appData, setAppData, 
     useEffect(() => {
         // Lazy load user moods if not present
         if (appData.userMoods.length === 0) {
-            setIsLoading(true);
+            setIsLoadingContent(true);
             getUserMoods().then(moods => {
                 setAppData(prev => ({ ...prev, userMoods: moods }));
-                setIsLoading(false);
-            }).catch(() => setIsLoading(false));
+                setIsLoadingContent(false);
+            }).catch(() => setIsLoadingContent(false));
         }
     }, [appData.userMoods.length, setAppData]);
 
@@ -105,9 +105,9 @@ export const ContagemView: React.FC<MainContentProps> = ({ appData, setAppData, 
             }));
         }
     };
-    
-    if (isLoading) {
-        return <div className="text-center p-8">Carregando dados...</div>;
+
+    if (isLoadingContent) {
+        return <div className="text-center p-8">Carregando dados de humor...</div>;
     }
 
     return (

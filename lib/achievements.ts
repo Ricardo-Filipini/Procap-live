@@ -1,6 +1,9 @@
 
 
 
+
+
+
 import { AppData, User } from '../types';
 import { ACHIEVEMENTS } from '../constants';
 
@@ -29,12 +32,12 @@ export const checkAndAwardAchievements = (user: User, appData: AppData): User =>
     const votesGiven = appData.userContentInteractions
         .filter(i => i.user_id === user.id)
         // FIX: Defensively parse vote counts to ensure they are numbers before adding them.
-        .reduce((sum, i) => sum + (parseInt(i.hot_votes as any) || 0) + (parseInt(i.cold_votes as any) || 0), 0)
+        .reduce((sum, i) => sum + (Number(i.hot_votes) || 0) + (Number(i.cold_votes) || 0), 0)
         +
         appData.userNotebookInteractions
         .filter(i => i.user_id === user.id)
         // FIX: Defensively parse vote counts to ensure they are numbers before adding them.
-        .reduce((sum, i) => sum + (parseInt(i.hot_votes as any) || 0) + (parseInt(i.cold_votes as any) || 0), 0);
+        .reduce((sum, i) => sum + (Number(i.hot_votes) || 0) + (Number(i.cold_votes) || 0), 0);
     checkCategory(ACHIEVEMENTS.VOTES_GIVEN, votesGiven);
 
     const iaInteractions = appData.chatMessages.filter(m => m.author === user.pseudonym && (m.text.toLowerCase().includes('@ia') || m.text.toLowerCase().includes('@ed'))).length;
@@ -47,5 +50,6 @@ export const checkAndAwardAchievements = (user: User, appData: AppData): User =>
     if (newAchievements.size > user.achievements.length) {
         return { ...user, achievements: Array.from(newAchievements).sort() };
     }
+    // FIX: A function whose declared type is neither 'undefined', 'void', nor 'any' must return a value.
     return user;
 };

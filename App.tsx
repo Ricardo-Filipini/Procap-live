@@ -45,7 +45,7 @@ const App: React.FC = () => {
       localStorage.setItem('procap_agent_settings', JSON.stringify(agentSettings));
   }, [agentSettings]);
 
-  // Load all data from Supabase on initial load
+  // Load only essential user data on initial load
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true);
@@ -69,7 +69,7 @@ const App: React.FC = () => {
         }
       } catch (e: any) {
         console.error("Error fetching initial data from Supabase", e);
-        setError("Falha na conexão com o banco de dados. Por favor, recarregue a página.");
+        setError("Não foi possível carregar os dados iniciais da plataforma. Verifique sua conexão e recarregue a página.");
       } finally {
         setIsLoading(false);
       }

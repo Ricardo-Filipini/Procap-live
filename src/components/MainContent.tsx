@@ -1,3 +1,6 @@
+
+
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { Theme, View, AppData, User, MainContentProps } from '../types';
 import { VIEWS } from '../constants';
@@ -14,6 +17,7 @@ import { AudioSummariesView } from './views/AudioSummariesView';
 import { CommunityView } from './views/CommunityView';
 import { ProfileView } from './views/ProfileView';
 import { SourcesView } from './views/SourcesView';
+// Fix: Correctly import CaseStudyView from its new file.
 import { CaseStudyView } from './views/CaseStudyView';
 import { CronogramaView } from './views/CronogramaView';
 import { LinksFilesView } from './views/LinksFilesView';
@@ -22,13 +26,6 @@ import { ContagemView } from './views/ContagemView';
 
 export const MainContent: React.FC<MainContentProps> = (props) => {
   const { activeView, setActiveView, appData, theme, setTheme, onToggleLiveAgent, isLiveAgentActive, onToggleAgentSettings, navTarget, setNavTarget, setScreenContext, liveAgentStatus, processingTasks, setProcessingTasks } = props;
-
-  const allSummaries = useMemo(() => appData.sources.flatMap(s => (s.summaries || []).map(summary => ({ ...summary, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
-  const allFlashcards = useMemo(() => appData.sources.flatMap(s => (s.flashcards || []).map(fc => ({ ...fc, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
-  const allQuestions = useMemo(() => appData.sources.flatMap(s => (s.questions || []).map(q => ({ ...q, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
-  const allMindMaps = useMemo(() => appData.sources.flatMap(s => (s.mind_maps || []).map(mm => ({ ...mm, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
-  const allAudioSummaries = useMemo(() => appData.sources.flatMap(s => (s.audio_summaries || []).map(as => ({ ...as, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
-  const allLinksFiles = useMemo(() => appData.linksFiles.map(lf => ({...lf, user_id: lf.user_id, created_at: lf.created_at})), [appData.linksFiles]);
 
   useEffect(() => {
     const successTasks = processingTasks.filter(t => t.status === 'success');
@@ -49,7 +46,6 @@ export const MainContent: React.FC<MainContentProps> = (props) => {
   };
 
   const renderContent = () => {
-    // FIX: Pass the full navTarget object if the view name matches to maintain type consistency. The child component can then destructure what it needs.
     const currentNavTarget = (navTarget && navTarget.viewName === activeView.name) ? navTarget : null;
     const clearNavTarget = () => setNavTarget ? setNavTarget(null) : undefined;
 
@@ -64,17 +60,17 @@ export const MainContent: React.FC<MainContentProps> = (props) => {
       case 'Contagem':
         return <ContagemView {...viewProps} />;
       case 'Resumos':
-        return <SummariesView {...viewProps} allItems={allSummaries} />;
+        return <SummariesView {...viewProps} />;
       case 'Flashcards':
-        return <FlashcardsView {...viewProps} allItems={allFlashcards} />;
+        return <FlashcardsView {...viewProps} />;
       case 'Questões':
-        return <QuestionsView {...viewProps} allItems={allQuestions} />;
+        return <QuestionsView {...viewProps} />;
       case 'Links/Arquivos':
-        return <LinksFilesView {...viewProps} allItems={allLinksFiles} />;
+        return <LinksFilesView {...viewProps} />;
       case 'Mapas Mentais':
-          return <MindMapsView {...viewProps} allItems={allMindMaps} />;
+          return <MindMapsView {...viewProps} />;
       case 'Mídia':
-          return <AudioSummariesView {...viewProps} allItems={allAudioSummaries} />;
+          return <AudioSummariesView {...viewProps} />;
       case 'Estudo de Caso':
           return <CaseStudyView {...props} />;
       case 'Cronograma':
