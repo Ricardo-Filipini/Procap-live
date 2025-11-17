@@ -20,6 +20,7 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
     const [commentingOnNotebook, setCommentingOnNotebook] = useState<QuestionNotebook | null>(null);
     const [sort, setSort] = useState<SortOption>('temp');
     const [questionIdToFocus, setQuestionIdToFocus] = useState<string | null>(null);
+    const [restoredFromStorage, setRestoredFromStorage] = useState(false);
 
 
     const allItems = useMemo(() => appData.sources.flatMap(s => (s.questions || []).map(q => ({ ...q, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
@@ -107,11 +108,33 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
         }
     }, [navTarget, clearNavTarget, appData.questionNotebooks]);
 
-    // Save current notebook to localStorage but DON'T clear it on back navigation
+    // Restore from localStorage on initial mount, only if not navigating explicitly
+    useEffect(() => {
+        if (appData.questionNotebooks.length > 0 && !restoredFromStorage && !navTarget) {
+            const savedNotebookId = localStorage.getItem('procap_lastNotebookId');
+            if (savedNotebookId) {
+                const notebook = savedNotebookId === 'all' ? 'all' : appData.questionNotebooks.find(n => n.id === savedNotebookId);
+                if (notebook) {
+                    setSelectedNotebook(notebook);
+                    setQuestionIdToFocus(localStorage.getItem('procap_lastQuestionId'));
+                } else {
+                    localStorage.removeItem('procap_lastNotebookId');
+                    localStorage.removeItem('procap_lastQuestionId');
+                }
+            }
+            setRestoredFromStorage(true); // Ensure this logic runs only once per session
+        }
+    }, [appData.questionNotebooks, restoredFromStorage, navTarget]);
+
+    // Save current notebook to localStorage
     useEffect(() => {
         if (selectedNotebook) {
             const idToSave = selectedNotebook === 'all' ? 'all' : selectedNotebook.id;
             localStorage.setItem('procap_lastNotebookId', idToSave);
+        } else if (selectedNotebook === null) {
+            // When user explicitly goes back to the list, clear storage so a refresh doesn't bring them back in.
+            localStorage.removeItem('procap_lastNotebookId');
+            localStorage.removeItem('procap_lastQuestionId');
         }
     }, [selectedNotebook]);
 
@@ -216,8 +239,6 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
             onBack={() => {
                 setSelectedNotebook(null);
                 setQuestionIdToFocus(null);
-                localStorage.removeItem('procap_lastNotebookId');
-                localStorage.removeItem('procap_lastQuestionId');
             }}
             questionIdToFocus={questionIdToFocus}
             onFocusConsumed={handleFocusConsumed}

@@ -1,6 +1,3 @@
-
-
-
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { AppData, User, ChatMessage, MainContentProps, XpEvent } from '../../types';
 // FIX: Added missing icon imports
@@ -383,7 +380,7 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[]; them
               ...(user as User & { color: string }),
               xp: xpMap.get((user as User).id) || 0,
             }))
-            .sort((a, b) => b.xp - a.xp)
+            .sort((a, b) => (Number(b.xp) || 0) - (Number(a.xp) || 0))
             .slice(0, 15);
     }, [currentTime, sortedEvents, userMap, timeRange]);
 
@@ -415,10 +412,8 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[]; them
                 }
             });
             
-            // FIX: Correctly type `user` to ensure `xp` is a number for arithmetic operations.
-            nextDataMap.forEach((user: any, userId) => {
+            nextDataMap.forEach((user: User & { color: string; xp: number }, userId) => {
                 const targetXp = targetMap.get(userId) ?? 0;
-                // FIX: `user.xp` is now correctly typed as number.
                 const currentXp = Number(user.xp) || 0;
                 const diff = targetXp - currentXp;
             
@@ -436,8 +431,7 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[]; them
 
             if (hasChanged) {
                 const sortedNextData = Array.from(nextDataMap.values())
-                    // FIX: With correct types, direct subtraction is safe and no 'any' is needed.
-                    .sort((a: any, b: any) => (Number(b.xp) || 0) - (Number(a.xp) || 0))
+                    .sort((a: { xp: number }, b: { xp: number }) => (Number(b.xp) || 0) - (Number(a.xp) || 0))
                     .slice(0, 15);
                 setDisplayedRaceData(sortedNextData);
             }
@@ -514,7 +508,7 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[]; them
         return <div className="text-center p-8 bg-card-light dark:bg-card-dark rounded-lg shadow-md border border-border-light dark:border-border-dark flex-1 flex items-center justify-center">Dados de XP insuficientes para a animação.</div>;
     }
 
-    const maxXP = Math.max(20, ...displayedRaceData.map(d => d.xp));
+    const maxXP = Math.max(20, ...displayedRaceData.map(d => Number(d.xp) || 0));
     const ITEM_HEIGHT = 48;
     const labelColor = theme === 'dark' ? 'text-white' : 'text-black';
 
@@ -559,7 +553,7 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[]; them
                             {/* Bar */}
                             <div
                                 className="absolute top-0 left-0 h-full rounded-md transition-all duration-500 ease-linear"
-                                style={{ width: `${(user.xp / maxXP) * 100}%`, backgroundColor: user.color }}
+                                style={{ width: `${((Number(user.xp) || 0) / maxXP) * 100}%`, backgroundColor: user.color }}
                             />
                             {/* Content Layer */}
                             <div className="relative w-full h-full flex items-center justify-between px-2">
@@ -567,7 +561,7 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[]; them
                                     <span className="font-bold text-lg w-8 text-center text-white mix-blend-difference flex-shrink-0">{index + 1}</span>
                                     <span className={`font-semibold ${labelColor} ml-4 whitespace-nowrap`}>{user.pseudonym}</span>
                                 </div>
-                                <span className="font-bold text-primary-light dark:text-primary-dark tabular-nums flex-shrink-0 pr-2">{Math.floor(user.xp)} XP</span>
+                                <span className="font-bold text-primary-light dark:text-primary-dark tabular-nums flex-shrink-0 pr-2">{Math.floor(Number(user.xp) || 0)} XP</span>
                             </div>
                         </div>
                     </div>

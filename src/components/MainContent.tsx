@@ -1,5 +1,7 @@
 
 
+
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { Theme, View, AppData, User, MainContentProps } from '../types';
 import { VIEWS } from '../constants';
@@ -60,13 +62,13 @@ export const MainContent: React.FC<MainContentProps> = (props) => {
         return <ContagemView {...viewProps} />;
       case 'Resumos':
         return <SummariesView {...viewProps} />;
-// FIX: Removed the `allItems` prop from FlashcardsView as it now calculates this internally.
       case 'Flashcards':
+// FIX: Removed the `allItems` prop from FlashcardsView as it now calculates this internally.
         return <FlashcardsView {...viewProps} />;
       case 'Questões':
         return <QuestionsView {...viewProps} />;
-// FIX: Removed the `allItems` prop from LinksFilesView as it now calculates this internally.
       case 'Links/Arquivos':
+// FIX: Removed the `allItems` prop from LinksFilesView as it now calculates this internally.
         return <LinksFilesView {...viewProps} />;
       case 'Mapas Mentais':
           return <MindMapsView {...viewProps} />;
@@ -114,17 +116,4 @@ export const MainContent: React.FC<MainContentProps> = (props) => {
                     <p className="font-semibold text-sm truncate" title={task.name}>{task.name}</p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">{task.message}</p>
                   </div>
-                  <div className="flex-shrink-0">
-                    {task.status === 'error' && (
-                      <button onClick={() => setProcessingTasks(prev => prev.filter(t => t.id !== task.id))} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
-                        <XMarkIcon className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-      </div>
-  );
-};
+                  <
