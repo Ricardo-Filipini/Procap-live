@@ -596,6 +596,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
         if (isRaceChartActive) return [];
 
         if (leaderboardFilter === 'geral') {
+            // FIX: Defensively cast xp to number to prevent sort errors.
             return [...appData.users].sort((a: User, b: User) => (Number(b.xp) || 0) - (Number(a.xp) || 0));
         }
 
@@ -624,7 +625,8 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
         const xpEventsInPeriod = appData.xp_events.filter(event => new Date(event.created_at) >= startTime);
         const userXpInPeriod = calculateXpFromEvents(xpEventsInPeriod);
 
-        return userXpInPeriod.filter(user => user.xp > 0).sort((a: User, b: User) => (Number(b.xp) || 0) - (Number(a.xp) || 0));
+        // FIX: Defensively cast xp to number to prevent sort errors.
+        return userXpInPeriod.filter(user => user.xp > 0).sort((a, b) => (Number(b.xp) || 0) - (Number(a.xp) || 0));
 
     }, [appData.users, appData.xp_events, leaderboardFilter, isRaceChartActive]);
     

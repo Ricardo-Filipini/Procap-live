@@ -534,8 +534,8 @@ export const NotebookGridView: React.FC<{
         } else {
             id = notebook.id;
             name = notebook.name;
-// FIX: Defensively filter question_ids to ensure it's an array of strings before creating a Set, preventing a 'Set<unknown>' type error.
-            const notebookQuestionIds = new Set((notebook.question_ids || []));
+            // FIX: Defensively filter question_ids to ensure it's an array of strings before creating a Set, preventing a 'Set<unknown>' type error.
+            const notebookQuestionIds = new Set((notebook.question_ids || []).filter((id): id is string => typeof id === 'string'));
             questionCount = notebookQuestionIds.size;
             
             const answeredInThisNotebook = new Set(appData.userQuestionAnswers
@@ -660,6 +660,12 @@ export const NotebookDetailView: React.FC<{
 
     const [stableSortedQuestions, setStableSortedQuestions] = useState<(Question & { user_id: string, created_at: string, source: any})[]>([]);
     const shouldUpdateStableListRef = useRef(true);
+
+    // FIX: Define the missing triggerListRefresh function.
+    const triggerListRefresh = () => {
+        shouldUpdateStableListRef.current = true;
+    };
+
 
     useEffect(() => {
         setIsLoadingGlobalStats(true);
@@ -902,9 +908,6 @@ export const NotebookDetailView: React.FC<{
         
     }, [stableSortedQuestions, activeQuestionId, questionIdToFocus]);
     
-    const triggerListRefresh = () => {
-        shouldUpdateStableListRef.current = true;
-    };
     
     const handleSortChange = (newSort: typeof questionSortOrder) => {
         consumeFocus();

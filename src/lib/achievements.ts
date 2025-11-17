@@ -1,4 +1,3 @@
-
 import { AppData, User } from '../types';
 import { ACHIEVEMENTS } from '../constants';
 
@@ -44,5 +43,6 @@ export const checkAndAwardAchievements = (user: User, appData: AppData): User =>
     if (newAchievements.size > user.achievements.length) {
         return { ...user, achievements: Array.from(newAchievements).sort() };
     }
+    // FIX: Added missing return statement to ensure function always returns a User object.
     return user;
 };

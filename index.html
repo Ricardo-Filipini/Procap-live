@@ -5,7 +5,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
-    <meta name="app-version" content="20240823.5" />
+    <meta name="app-version" content="20240823.6" />
 
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -87,6 +87,15 @@
 </head>
   <body class="bg-background-light dark:bg-background-dark">
     <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
+    <script>
+      // Cache-busting script
+      (function() {
+        var version = document.querySelector('meta[name="app-version"]').getAttribute('content');
+        var script = document.createElement('script');
+        script.type = 'module';
+        script.src = '/index.tsx?v=' + version;
+        document.body.appendChild(script);
+      })();
+    </script>
   </body>
 </html>
