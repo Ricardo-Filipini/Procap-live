@@ -108,6 +108,7 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
     // Handle explicit navigation from other views
     useEffect(() => {
         if (navTarget?.id) {
+            setRestoredFromStorage(true); // Prevent localStorage restoration from overriding this navigation
             const notebook = appData.questionNotebooks.find(n => n.id === navTarget.id);
             if (notebook) {
                 setSelectedNotebook(notebook);
@@ -117,6 +118,7 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
             }
             clearNavTarget();
         } else if (navTarget?.term) {
+            setRestoredFromStorage(true); // Prevent localStorage restoration from overriding this navigation
             const notebook = appData.questionNotebooks.find(n => n.name.toLowerCase() === navTarget.term!.toLowerCase());
             if (notebook) {
                 setSelectedNotebook(notebook);
@@ -133,6 +135,9 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
         if (selectedNotebook) {
             const idToSave = selectedNotebook === 'all' ? 'all' : selectedNotebook.id;
             localStorage.setItem('procap_lastNotebookId', idToSave);
+        } else {
+            localStorage.removeItem('procap_lastNotebookId');
+            localStorage.removeItem('procap_lastQuestionId');
         }
     }, [selectedNotebook]);
 

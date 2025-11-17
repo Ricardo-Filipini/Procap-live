@@ -33,12 +33,7 @@ export const AgentSettingsModal: React.FC<AgentSettingsModalProps> = ({ isOpen, 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="Configurações do Agente IA (Ed)">
             <div className="space-y-4 text-sm">
-                <div className="text-center p-4 bg-background-light dark:bg-background-dark rounded-md border border-border-light dark:border-border-dark">
-                    <p className="font-semibold">A chave de API do Gemini agora é gerenciada centralmente.</p>
-                    <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline mt-1 flex items-center justify-center gap-1">
-                        <LinkIcon className="w-3 h-3"/> Obtenha uma chave gratuita no Google AI Studio
-                    </a>
-                </div>
+                {/* FIX: Removed API key management UI to adhere to guidelines. */}
 
                 <div>
                     <label className="block font-medium mb-1">Voz do Agente</label>

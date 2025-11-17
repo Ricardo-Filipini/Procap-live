@@ -9,7 +9,7 @@ import { FontSizeControl, FONT_SIZE_CLASSES } from '../shared/FontSizeControl';
 import { checkAndAwardAchievements } from '../../lib/achievements';
 import { handleInteractionUpdate, handleVoteUpdate } from '../../lib/content';
 import { filterItemsByPrompt, generateNotebookName } from '../../services/geminiService';
-import { addQuestionNotebook, upsertUserVote, updateContentComments, updateUser as supabaseUpdateUser, upsertUserQuestionAnswer, clearNotebookAnswers, supabase, logXpEvent } from '../../services/supabaseClient';
+import { addQuestionNotebook, upsertUserVote, updateContentComments, updateUser as supabaseUpdateUser, upsertUserQuestionAnswer, clearNotebookAnswers, supabase, logXpEvent, getQuestionStats, getNotebookLeaderboards } from '../../services/supabaseClient';
 
 const CreateNotebookModal: React.FC<{
     isOpen: boolean;
@@ -209,41 +209,29 @@ const QuestionStatsModal: React.FC<{
     isOpen: boolean;
     onClose: () => void;
     question: Question;
-    appData: MainContentProps['appData'];
-}> = ({ isOpen, onClose, question, appData }) => {
+    globalStats: any[] | null;
+}> = ({ isOpen, onClose, question, globalStats }) => {
     const stats = useMemo(() => {
-        if (!question) return null;
+        if (!question || !globalStats) return null;
 
-        const allAnswersForThisQuestion = appData.userQuestionAnswers.filter(
-            ans => ans.question_id === question.id
-        );
+        const questionStat = globalStats.find(s => s.question_id === question.id);
 
-        const firstTryAnswers = allAnswersForThisQuestion.map(ans => ans.attempts[0]);
-        const totalFirstTries = firstTryAnswers.length;
-        if (totalFirstTries === 0) {
-            return { total: 0, correct: 0, incorrect: 0, distribution: question.options.map(o => ({ option: o, count: 0, percentage: 0})) };
+        if (!questionStat) {
+             return { total: 0, correct: 0, incorrect: 0, distribution: [] };
         }
 
-        const correctFirstTries = allAnswersForThisQuestion.filter(ans => ans.is_correct_first_try).length;
-        const incorrectFirstTries = totalFirstTries - correctFirstTries;
-
-        const distribution = (question.options as string[]).map(option => {
-            const count = firstTryAnswers.filter(ans => ans === option).length;
-            return { option, count, percentage: (count / totalFirstTries) * 100 };
-        });
-
         return {
-            total: totalFirstTries,
-            correct: correctFirstTries,
-            incorrect: incorrectFirstTries,
-            distribution: distribution.sort((a,b) => b.count - a.count)
+            total: questionStat.total_answers,
+            correct: questionStat.correct_answers,
+            incorrect: questionStat.total_answers - questionStat.correct_answers,
+            // Distribution is not available from the RPC, this is a simplification
+            distribution: []
         };
-    }, [question, appData.userQuestionAnswers]);
-
-    if (!stats) return null;
+    }, [question, globalStats]);
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={`Estatísticas da Questão`}>
+        <Modal isOpen={isOpen} onClose={onClose} title={`Estatísticas Globais da Questão`}>
+             {stats ? (
             <div className="space-y-4">
                 <p className="text-sm font-semibold truncate">{question.questionText}</p>
                  {stats.total > 0 ? (
@@ -262,27 +250,15 @@ const QuestionStatsModal: React.FC<{
                                 <p className="text-2xl font-bold text-red-600 dark:text-red-400">{stats.incorrect}</p>
                             </div>
                         </div>
-                        <div>
-                            <h4 className="font-semibold mb-2">Distribuição das Respostas (1ª Tentativa)</h4>
-                            <div className="space-y-2">
-                                {stats.distribution.map(({ option, count, percentage }) => (
-                                    <div key={option}>
-                                        <div className="flex justify-between items-center text-sm mb-1">
-                                            <span className={`truncate ${option === question.correctAnswer ? 'font-bold' : ''}`} title={option}>{option}</span>
-                                            <span>{count} ({percentage.toFixed(0)}%)</span>
-                                        </div>
-                                        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
-                                            <div className={`h-2.5 rounded-full ${option === question.correctAnswer ? 'bg-green-500' : 'bg-primary-light'}`} style={{ width: `${percentage}%` }}></div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
+                        <p className="text-xs text-center text-gray-500">(Estatísticas de todos os usuários na primeira tentativa)</p>
                     </>
                 ) : (
                     <p className="text-center text-gray-500 py-4">Nenhum usuário respondeu a esta questão ainda.</p>
                 )}
             </div>
+             ) : (
+                <div className="text-center p-8">Carregando estatísticas globais...</div>
+            )}
         </Modal>
     );
 };
@@ -401,7 +377,9 @@ const NotebookStatsModal: React.FC<{
     currentUser: MainContentProps['currentUser'];
     onClearAnswers: (questionIdsToClear: string[]) => void;
     onStartClearing: () => void;
-}> = ({ isOpen, onClose, notebook, appData, allQuestions, currentUser, onClearAnswers, onStartClearing }) => {
+    notebookLeaderboards: any | null;
+    isLoadingGlobalStats: boolean;
+}> = ({ isOpen, onClose, notebook, appData, allQuestions, currentUser, onStartClearing, notebookLeaderboards, isLoadingGlobalStats }) => {
     const notebookId = notebook === 'all' ? 'all_questions' : notebook.id;
     const notebookName = notebook === 'all' ? "Todas as Questões" : notebook.name;
     
@@ -420,30 +398,20 @@ const NotebookStatsModal: React.FC<{
     }, [appData.userQuestionAnswers, currentUser.id, notebookId]);
 
     const leaderboardData = useMemo(() => {
-        const userScores: { [userId: string]: { correct: number } } = {};
+        if (!notebookLeaderboards) return [];
+        
+        const leaderboard = notebookLeaderboards[notebookId];
+        if (!leaderboard) return [];
 
-        appData.userQuestionAnswers
-            .filter(ans => String(ans.notebook_id) === notebookId)
-            .forEach(ans => {
-                if (!userScores[ans.user_id]) {
-                    userScores[ans.user_id] = { correct: 0 };
-                }
-                if (ans.is_correct_first_try) {
-                    userScores[ans.user_id].correct++;
-                }
-            });
-
-        return Object.entries(userScores)
-            .map(([userId, scores]) => {
-                const user = appData.users.find(u => u.id === userId);
+        return leaderboard.map((entry: {user_id: string, score: number}) => {
+                const user = appData.users.find(u => u.id === entry.user_id);
                 return {
-                    userId,
+                    userId: entry.user_id,
                     pseudonym: user?.pseudonym || 'Desconhecido',
-                    score: scores.correct,
+                    score: entry.score,
                 };
             })
-            .sort((a, b) => b.score - a.score);
-    }, [appData.userQuestionAnswers, appData.users, notebookId]);
+    }, [notebookLeaderboards, appData.users, notebookId]);
 
     const totalQuestions = questionIds.size;
     const questionsAnswered = relevantAnswers.length;
@@ -478,12 +446,13 @@ const NotebookStatsModal: React.FC<{
                 <div className="pt-4 border-t border-border-light dark:border-border-dark">
                     <h3 className="text-lg font-semibold mb-2">Leaderboard do Caderno</h3>
                     <div className="max-h-40 overflow-y-auto space-y-2">
-                        {leaderboardData.length > 0 ? leaderboardData.map((entry, index) => (
+                         {isLoadingGlobalStats ? <p className="text-sm text-center text-gray-500">Carregando placar...</p> :
+                         (leaderboardData && leaderboardData.length > 0 ? leaderboardData.map((entry: any, index: number) => (
                             <div key={entry.userId} className={`flex items-center justify-between p-2 rounded-md ${entry.userId === currentUser.id ? 'bg-primary-light/10' : 'bg-background-light dark:bg-background-dark'}`}>
                                 <p><span className="font-bold w-6 inline-block">{index + 1}.</span> {entry.pseudonym}</p>
                                 <p className="font-bold">{entry.score} acertos</p>
                             </div>
-                        )) : <p className="text-sm text-gray-500">Ninguém respondeu a este caderno ainda.</p>}
+                        )) : <p className="text-sm text-gray-500">Ninguém pontuou neste caderno ainda.</p>)}
                     </div>
                 </div>
 
@@ -685,6 +654,29 @@ export const NotebookDetailView: React.FC<{
     const displayedQuestionRef = useRef<Question | null>(null);
 
     const focusConsumedRef = useRef(false);
+    
+    const [globalStats, setGlobalStats] = useState<{ questionStats: any[] | null, notebookLeaderboards: any | null }>({ questionStats: null, notebookLeaderboards: null });
+    const [isLoadingGlobalStats, setIsLoadingGlobalStats] = useState(true);
+
+    const [stableSortedQuestions, setStableSortedQuestions] = useState<(Question & { user_id: string, created_at: string, source: any})[]>([]);
+    const shouldUpdateStableListRef = useRef(true);
+
+    useEffect(() => {
+        setIsLoadingGlobalStats(true);
+        Promise.all([
+            getQuestionStats(),
+            getNotebookLeaderboards(),
+        ]).then(([statsRes, leaderboardsRes]) => {
+            setGlobalStats({
+                questionStats: statsRes.data,
+                notebookLeaderboards: leaderboardsRes.data,
+            });
+            if (statsRes.error) console.error("Failed to fetch global question stats:", statsRes.error);
+            if (leaderboardsRes.error) console.error("Failed to fetch notebook leaderboards:", leaderboardsRes.error);
+        }).finally(() => {
+            setIsLoadingGlobalStats(false);
+        });
+    }, []);
 
     useEffect(() => {
         // Reset the consumed flag if the focus target changes (e.g., navigating from another view)
@@ -718,37 +710,34 @@ export const NotebookDetailView: React.FC<{
 
 
     const questionErrorRates = useMemo(() => {
-        const stats = new Map<string, { total: number; correct: number }>();
-        appData.userQuestionAnswers.forEach(ans => {
-            const stat = stats.get(ans.question_id) || { total: 0, correct: 0 };
-            stat.total++;
-            if (ans.is_correct_first_try) stat.correct++;
-            stats.set(ans.question_id, stat);
-        });
         const rates = new Map<string, number>();
-        stats.forEach((stat, qId) => {
-            if (stat.total > 0) rates.set(qId, 1 - (stat.correct / stat.total));
-        });
+        if (globalStats.questionStats) {
+            globalStats.questionStats.forEach(stat => {
+                if (stat.total_answers > 2) { // Only consider questions with a few answers
+                    const errorRate = 1 - (stat.correct_answers / stat.total_answers);
+                    rates.set(stat.question_id, errorRate);
+                } else {
+                    rates.set(stat.question_id, 0.5); // Default for low-data questions
+                }
+            });
+        }
         return rates;
-    }, [appData.userQuestionAnswers]);
+    }, [globalStats.questionStats]);
     
     const difficultyThresholds = useMemo(() => {
+        if (!globalStats.questionStats) return { easy: 0.33, medium: 0.66 };
+        
         const ratesInNotebook = questionsInNotebook
             .map(q => questionErrorRates.get(q.id) ?? 0.5) 
             .sort((a, b) => a - b);
         
-        if (ratesInNotebook.length < 3) {
-            return { easy: 0.33, medium: 0.66 };
-        }
+        if (ratesInNotebook.length < 3) return { easy: 0.33, medium: 0.66 };
         
         const easyPercentile = ratesInNotebook[Math.floor(ratesInNotebook.length * 0.33)];
         const mediumPercentile = ratesInNotebook[Math.floor(ratesInNotebook.length * 0.66)];
         
-        return {
-            easy: easyPercentile,
-            medium: mediumPercentile
-        };
-    }, [questionsInNotebook, questionErrorRates]);
+        return { easy: easyPercentile, medium: mediumPercentile };
+    }, [questionsInNotebook, questionErrorRates, globalStats.questionStats]);
 
 
     const stableRandomSort = useMemo(() => {
@@ -757,7 +746,7 @@ export const NotebookDetailView: React.FC<{
         return (a: Question, b: Question) => (randomValues.get(a.id) ?? 0) - (randomValues.get(b.id) ?? 0);
     }, [questionsInNotebook, shuffleTrigger]);
     
-    const sortedQuestions = useMemo(() => {
+    const liveSortedQuestions = useMemo(() => {
         let questionsToProcess = [...questionsInNotebook];
 
         if (notebook === 'all' && sourceFilter !== 'all') {
@@ -820,32 +809,54 @@ export const NotebookDetailView: React.FC<{
         showUnansweredInAnyNotebook, difficultyFilter, questionErrorRates, difficultyThresholds, sourceFilter
     ]);
 
+    useEffect(() => {
+        if (shouldUpdateStableListRef.current) {
+            setStableSortedQuestions(liveSortedQuestions);
+            shouldUpdateStableListRef.current = false;
+        }
+    }, [liveSortedQuestions]);
+
     const currentQuestionIndex = useMemo(() => {
         if (!activeQuestionId) return -1;
-        return sortedQuestions.findIndex(q => q.id === activeQuestionId);
-    }, [activeQuestionId, sortedQuestions]);
+        return stableSortedQuestions.findIndex(q => q.id === activeQuestionId);
+    }, [activeQuestionId, stableSortedQuestions]);
 
     const currentQuestion = useMemo(() => {
         if (currentQuestionIndex > -1) {
-            return sortedQuestions[currentQuestionIndex];
+            return stableSortedQuestions[currentQuestionIndex];
         }
         // Fallback to find from original list if it was filtered out after answering
         return questionsInNotebook.find(q => q.id === activeQuestionId);
-    }, [currentQuestionIndex, sortedQuestions, questionsInNotebook, activeQuestionId]);
+    }, [currentQuestionIndex, stableSortedQuestions, questionsInNotebook, activeQuestionId]);
+
+     const shuffledOptionsMap = useMemo(() => {
+        if (!shuffleOptions) {
+            return new Map<string, string[]>();
+        }
+        
+        const newMap = new Map<string, string[]>();
+        questionsInNotebook.forEach(question => {
+            const options = [...question.options];
+            // Fisher-Yates shuffle
+            for (let i = options.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [options[i], options[j]] = [options[j], options[i]];
+            }
+            newMap.set(question.id, options);
+        });
+        return newMap;
+    }, [shuffleOptions, questionsInNotebook, shuffleTrigger]); // Added shuffleTrigger
 
      useEffect(() => {
         if (currentQuestion) {
-            const options = [...currentQuestion.options];
-            if (shuffleOptions) {
-                // Fisher-Yates shuffle for stable shuffling within a question view
-                for (let i = options.length - 1; i > 0; i--) {
-                    const j = Math.floor(Math.random() * (i + 1));
-                    [options[i], options[j]] = [options[j], options[i]];
-                }
+            const shuffled = shuffledOptionsMap.get(currentQuestion.id);
+            if (shuffled) {
+                setDisplayedOptions(shuffled);
+            } else {
+                setDisplayedOptions(currentQuestion.options);
             }
-            setDisplayedOptions(options);
         }
-    }, [currentQuestion, shuffleOptions]);
+    }, [currentQuestion, shuffledOptionsMap]);
 
 
     if (currentQuestion) {
@@ -857,7 +868,7 @@ export const NotebookDetailView: React.FC<{
     useEffect(() => {
         // 1. Prioritize explicit navigation from another view or session restoration
         if (questionIdToFocus) {
-            const indexToFocus = sortedQuestions.findIndex(q => q.id === questionIdToFocus);
+            const indexToFocus = stableSortedQuestions.findIndex(q => q.id === questionIdToFocus);
             if (indexToFocus !== -1 && activeQuestionId !== questionIdToFocus) {
                 setActiveQuestionId(questionIdToFocus);
             }
@@ -869,9 +880,9 @@ export const NotebookDetailView: React.FC<{
         if (navigationActionRef.current) {
             const action = navigationActionRef.current;
             const desiredIndex = action === 'sort' ? (preservedIndexRef.current ?? 0) : 0;
-            const newIndex = Math.max(0, Math.min(desiredIndex, sortedQuestions.length - 1));
+            const newIndex = Math.max(0, Math.min(desiredIndex, stableSortedQuestions.length - 1));
             
-            const newQuestion = sortedQuestions[newIndex] || sortedQuestions[0] || null;
+            const newQuestion = stableSortedQuestions[newIndex] || stableSortedQuestions[0] || null;
 
             if (newQuestion && newQuestion.id !== activeQuestionId) {
                 setActiveQuestionId(newQuestion.id);
@@ -885,16 +896,21 @@ export const NotebookDetailView: React.FC<{
         }
 
         // 3. Fallback for initialization
-        if (sortedQuestions.length > 0 && !activeQuestionId) {
-            setActiveQuestionId(sortedQuestions[0].id);
+        if (stableSortedQuestions.length > 0 && !activeQuestionId) {
+            setActiveQuestionId(stableSortedQuestions[0].id);
         }
         
-    }, [sortedQuestions, activeQuestionId, questionIdToFocus]);
-
+    }, [stableSortedQuestions, activeQuestionId, questionIdToFocus]);
+    
+    const triggerListRefresh = () => {
+        shouldUpdateStableListRef.current = true;
+    };
+    
     const handleSortChange = (newSort: typeof questionSortOrder) => {
         consumeFocus();
         navigationActionRef.current = 'sort';
         preservedIndexRef.current = currentQuestionIndex > -1 ? currentQuestionIndex : 0;
+        triggerListRefresh();
         setQuestionSortOrder(newSort);
         if (newSort === 'random') {
             setShuffleTrigger(c => c + 1);
@@ -905,6 +921,7 @@ export const NotebookDetailView: React.FC<{
         consumeFocus();
         navigationActionRef.current = 'filter';
         preservedIndexRef.current = 0;
+        triggerListRefresh();
     };
     
     const handleDifficultyFilterChange = (newDifficulty: typeof difficultyFilter) => {
@@ -929,6 +946,13 @@ export const NotebookDetailView: React.FC<{
     const handleSourceFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         triggerFilterChange();
         setSourceFilter(e.target.value);
+    };
+    
+     const handleShuffleOptionsToggle = () => {
+        // This doesn't change the question list, so no need to trigger a list refresh.
+        setShuffleOptions(s => !s);
+        // Force a re-shuffle of the map, even if `questionsInNotebook` hasn't changed
+        setShuffleTrigger(c => c + 1); 
     };
 
     useEffect(() => {
@@ -976,7 +1000,9 @@ export const NotebookDetailView: React.FC<{
         const success = await updateContentComments('questions', commentingOnQuestion.id, updatedComments);
         if (success) {
             const updatedItem = {...commentingOnQuestion, comments: updatedComments };
-            setAppData(prev => ({ ...prev, sources: prev.sources.map(s => s.id === updatedItem.source_id ? { ...s, questions: s.questions.map(q => q.id === updatedItem.id ? updatedItem : q) } : s) }));
+            // FIX: Remove 'source' property from the updated item to match the Omit<Question, 'source'> type in the appData state. This fixes a type error that was causing the component to fail to render.
+            const { source: _source, ...updatedItemWithoutSource } = updatedItem;
+            setAppData(prev => ({ ...prev, sources: prev.sources.map((s: Source) => s.id === updatedItem.source_id ? { ...s, questions: s.questions.map(q => q.id === updatedItem.id ? updatedItemWithoutSource : q) } : s) }));
             setCommentingOnQuestion(updatedItem);
         }
     };
@@ -1143,13 +1169,13 @@ export const NotebookDetailView: React.FC<{
         consumeFocus();
         let newIndex;
         if (currentQuestionIndex < 0) { // Current question was filtered out
-            newIndex = direction === 1 ? 0 : sortedQuestions.length - 1;
+            newIndex = direction === 1 ? 0 : stableSortedQuestions.length - 1;
         } else {
             newIndex = currentQuestionIndex + direction;
         }
         
-        if (newIndex >= 0 && newIndex < sortedQuestions.length) {
-            setActiveQuestionId(sortedQuestions[newIndex].id);
+        if (newIndex >= 0 && newIndex < stableSortedQuestions.length) {
+            setActiveQuestionId(stableSortedQuestions[newIndex].id);
         }
     };
     
@@ -1158,8 +1184,8 @@ export const NotebookDetailView: React.FC<{
         let nextIndex = -1;
         const startIndex = currentQuestionIndex > -1 ? currentQuestionIndex : -1;
 
-        for (let i = startIndex + 1; i < sortedQuestions.length; i++) {
-            if (!userAnswers.has(sortedQuestions[i].id)) {
+        for (let i = startIndex + 1; i < stableSortedQuestions.length; i++) {
+            if (!userAnswers.has(stableSortedQuestions[i].id)) {
                 nextIndex = i;
                 break;
             }
@@ -1167,7 +1193,7 @@ export const NotebookDetailView: React.FC<{
         
         if (nextIndex === -1) {
             for (let i = 0; i < startIndex; i++) {
-                if (!userAnswers.has(sortedQuestions[i].id)) {
+                if (!userAnswers.has(stableSortedQuestions[i].id)) {
                     nextIndex = i;
                     break;
                 }
@@ -1175,7 +1201,7 @@ export const NotebookDetailView: React.FC<{
         }
 
         if (nextIndex !== -1) {
-            setActiveQuestionId(sortedQuestions[nextIndex].id);
+            setActiveQuestionId(stableSortedQuestions[nextIndex].id);
         } else {
             alert("Parabéns! Você respondeu todas as questões deste caderno com os filtros atuais.");
         }
@@ -1212,6 +1238,8 @@ export const NotebookDetailView: React.FC<{
             allQuestions={allQuestions}
             currentUser={currentUser}
             onStartClearing={() => setIsClearing(true)}
+            notebookLeaderboards={globalStats.notebookLeaderboards}
+            isLoadingGlobalStats={isLoadingGlobalStats}
             onClearAnswers={async (questionIdsToClear) => {
                 const success = await clearNotebookAnswers(currentUser.id, notebookId, questionIdsToClear.length > 0 ? questionIdsToClear : undefined);
                 if (success) {
@@ -1226,7 +1254,7 @@ export const NotebookDetailView: React.FC<{
                             return false; 
                         })
                     }));
-                    if(sortedQuestions.length > 0) setActiveQuestionId(sortedQuestions[0].id);
+                    if(stableSortedQuestions.length > 0) setActiveQuestionId(stableSortedQuestions[0].id);
                 } else {
                     alert("Não foi possível limpar as respostas.");
                 }
@@ -1254,7 +1282,7 @@ export const NotebookDetailView: React.FC<{
                                 return false; 
                             })
                         }));
-                        if(sortedQuestions.length > 0) setActiveQuestionId(sortedQuestions[0].id);
+                        if(stableSortedQuestions.length > 0) setActiveQuestionId(stableSortedQuestions[0].id);
                     } else {
                         alert("Não foi possível limpar as respostas.");
                     }
@@ -1270,7 +1298,7 @@ export const NotebookDetailView: React.FC<{
                 isOpen={isQuestionStatsModalOpen}
                 onClose={() => setIsQuestionStatsModalOpen(false)}
                 question={questionToRender}
-                appData={appData}
+                globalStats={globalStats.questionStats}
             />
         )}
         <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
@@ -1284,7 +1312,7 @@ export const NotebookDetailView: React.FC<{
                         </button>
                     </div>
                     <div className="text-right">
-                        <span className="font-semibold">{(currentQuestionIndex > -1 ? currentQuestionIndex : 0) + 1} / {sortedQuestions.length}</span>
+                        <span className="font-semibold">{(currentQuestionIndex > -1 ? currentQuestionIndex : 0) + 1} / {stableSortedQuestions.length}</span>
                     </div>
                 </div>
                 <div className="w-full text-left md:text-right text-xs text-gray-500 dark:text-gray-400 mt-2">
@@ -1300,179 +1328,157 @@ export const NotebookDetailView: React.FC<{
                     <button title="Temperatura" onClick={() => handleSortChange('temp')} className={`p-2 rounded-full transition ${questionSortOrder === 'temp' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🌡️</button>
                     <button title="Mais Recentes" onClick={() => handleSortChange('date')} className={`p-2 rounded-full transition ${questionSortOrder === 'date' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🕐</button>
                     <button title="Aleatória" onClick={() => handleSortChange('random')} className={`p-2 rounded-full transition ${questionSortOrder === 'random' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🔀</button>
-                    <button title="Embaralhar Alternativas" onClick={() => setShuffleOptions(s => !s)} className={`p-2 rounded-full transition ${shuffleOptions ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🎲</button>
+                    <button title="Embaralhar Alternativas" onClick={handleShuffleOptionsToggle} className={`p-2 rounded-full transition ${shuffleOptions ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🎲</button>
                 </div>
                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-semibold">Filtrar:</span>
+                    <span className="font-semibold">Filtrar por Dificuldade:</span>
                      {(['Fácil', 'Médio', 'Difícil'] as const).map(d => (
                         <button key={d} onClick={() => handleDifficultyFilterChange(d)} className={`px-3 py-1 rounded-md transition ${difficultyFilter === d ? 'bg-primary-light text-white' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>{d}</button>
                     ))}
-                    <button title="Mostrar apenas questões erradas" onClick={handleShowWrongOnlyChange} className={`p-2 rounded-full transition ${showWrongOnly ? 'bg-red-500/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}> <XCircleIcon className={`w-5 h--- START OF FILE src/components/views/ContagemView.tsx ---
-
-import React, { useState, useEffect, useMemo } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts';
-import { MainContentProps, UserMood } from '../../types';
-import { upsertUserMood } from '../../services/supabaseClient';
-
-const PROCAP_START = new Date('2025-11-03T08:00:00-03:00'); // Brasília time (GMT-3)
-const PROVA_TIME = new Date('2025-11-23T08:00:00-03:00');
-
-const MOODS = [
-    { name: 'Animado', emoji: '🥳', color: '#10b981', bgColor: 'bg-green-500/10', borderColor: 'border-green-500' },
-    { name: 'Motivado', emoji: '💪', color: '#14b8a6', bgColor: 'bg-teal-500/10', borderColor: 'border-teal-500' },
-    { name: 'Focado', emoji: '🎯', color: '#3b82f6', bgColor: 'bg-blue-500/10', borderColor: 'border-blue-500' },
-    { name: 'Cansado', emoji: '😴', color: '#6b7280', bgColor: 'bg-gray-500/10', borderColor: 'border-gray-500' },
-    { name: 'Nervoso', emoji: '😬', color: '#eab308', bgColor: 'bg-yellow-500/10', borderColor: 'border-yellow-500' },
-    { name: 'Ansioso', emoji: '😰', color: '#f97316', bgColor: 'bg-orange-500/10', borderColor: 'border-orange-500' },
-    { name: 'Revoltado', emoji: '😡', color: '#ef4444', bgColor: 'bg-red-500/10', borderColor: 'border-red-500' },
-    { name: 'Perdido', emoji: '😵', color: '#8b5cf6', bgColor: 'bg-purple-500/10', borderColor: 'border-purple-500' },
-    { name: 'Marcelando', emoji: '😎', color: '#06b6d4', bgColor: 'bg-cyan-500/10', borderColor: 'border-cyan-500' },
-];
-
-const CustomYAxisTick: React.FC<any> = ({ x, y, payload }) => (
-    <g transform={`translate(${x},${y})`}>
-        <text x={0} y={0} dy={4} textAnchor="end" fill="currentColor" fontSize={24} className="transition-all">
-            {payload.value}
-        </text>
-    </g>
-);
-
-export const ContagemView: React.FC<MainContentProps> = ({ appData, setAppData, currentUser }) => {
-    const [now, setNow] = useState(new Date());
-
-    useEffect(() => {
-        const timer = setInterval(() => setNow(new Date()), 1000);
-        return () => clearInterval(timer);
-    }, []);
-
-    const timeValues = useMemo(() => {
-        const totalDuration = PROVA_TIME.getTime() - PROCAP_START.getTime();
-        const elapsedDuration = now.getTime() - PROCAP_START.getTime();
-        const progressPercentage = Math.max(0, Math.min(100, (elapsedDuration / totalDuration) * 100));
-
-        const remaining = Math.max(0, PROVA_TIME.getTime() - now.getTime());
-        const seconds = Math.floor(remaining / 1000);
-        const minutes = Math.floor(remaining / (1000 * 60));
-        const hours = Math.floor(remaining / (1000 * 60 * 60));
-        const days = Math.floor(remaining / (1000 * 60 * 60 * 24));
-        const weeks = Math.floor(days / 7);
-
-        return { progressPercentage, weeks, days, hours, minutes, seconds };
-    }, [now]);
-
-    const moodChartData = useMemo(() => {
-        const totalVotes = appData.userMoods.length;
-
-        const moodCounts = new Map<string, number>();
-        appData.userMoods.forEach(userMood => {
-            moodCounts.set(userMood.mood, (moodCounts.get(userMood.mood) || 0) + 1);
-        });
-
-        return MOODS.map(mood => {
-            const count = moodCounts.get(mood.name) || 0;
-            const percentage = totalVotes > 0 ? (count / totalVotes) * 100 : 0;
-            return {
-                name: mood.name,
-                emoji: mood.emoji,
-                count: count,
-                color: mood.color,
-                formattedLabel: `${count} (${percentage.toFixed(0)}%)`
-            };
-        });
-    }, [appData.userMoods]);
-
-    const currentUserMood = useMemo(() => {
-        return appData.userMoods.find(m => m.user_id === currentUser.id)?.mood;
-    }, [appData.userMoods, currentUser.id]);
-
-    const handleMoodChange = async (mood: string) => {
-        const oldMood = appData.userMoods.find(m => m.user_id === currentUser.id);
-
-        const optimisticUpdate: UserMood = { user_id: currentUser.id, mood, updated_at: new Date().toISOString() };
-        setAppData(prev => ({
-            ...prev,
-            userMoods: [...prev.userMoods.filter(m => m.user_id !== currentUser.id), optimisticUpdate]
-        }));
-
-        const result = await upsertUserMood(currentUser.id, mood);
-        if (!result) {
-            // Revert on failure
-            setAppData(prev => ({
-                ...prev,
-                userMoods: oldMood ? [...prev.userMoods.filter(m => m.user_id !== currentUser.id), oldMood] : prev.userMoods.filter(m => m.user_id !== currentUser.id)
-            }));
-        }
-    };
-
-    return (
-        <div className="space-y-8 animate-fade-in-up">
-            <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
-                <h2 className="text-2xl font-bold mb-1">🏁 Reta Final: Sua Saga até a Aprovação</h2>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">"A dor é temporária, o cargo é para sempre." (Autor Desconhecido, provavelmente aprovado)</p>
-                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-6">
-                    <div
-                        className="bg-primary-light h-6 rounded-full flex items-center justify-center text-white font-bold text-sm transition-all duration-1000 ease-out"
-                        style={{ width: `${timeValues.progressPercentage}%` }}
-                    >
-                        {timeValues.progressPercentage.toFixed(4)}%
-                    </div>
+                    {isLoadingGlobalStats && <span className="text-xs text-gray-400"> (Carregando estatísticas...)</span>}
                 </div>
+                 <div className="flex items-center gap-2 flex-wrap">
+                     <button title="Mostrar apenas questões erradas" onClick={handleShowWrongOnlyChange} className={`p-2 rounded-full transition ${showWrongOnly ? 'bg-red-500/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}> <XCircleIcon className={`w-5 h-5 ${showWrongOnly ? 'text-red-500' : 'text-gray-500'}`} /> </button>
+                    {notebook === 'all' && ( <button title="Mostrar apenas questões inéditas (não respondidas em nenhum caderno)" onClick={handleShowUnansweredChange} className={`flex items-center gap-1 px-3 py-1 rounded-md text-sm font-semibold transition ${showUnansweredInAnyNotebook ? 'bg-blue-500/20 text-blue-500' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}> <SparklesIcon className="w-4 h-4" /> Inéditas </button> )}
+                </div>
+                 {notebook === 'all' && (
+                    <div className="flex items-center gap-2">
+                        <span className="font-semibold">Fonte:</span>
+                        <select
+                            value={sourceFilter}
+                            onChange={handleSourceFilterChange}
+                            className="py-1 px-2 rounded-md bg-background-light dark:bg-background-dark border border-border-light dark:border-border-dark"
+                        >
+                            <option value="all">Todas as Fontes</option>
+                            {sourcesForFilter.map(source => (
+                                <option key={source.id} value={source.id}>{source.title}</option>
+                            ))}
+                        </select>
+                    </div>
+                )}
+                {notebook === 'all' && ( <div className="flex items-center gap-2"> <input type="checkbox" id="prioritizeApostilas" checked={prioritizeApostilas} onChange={e => { triggerListRefresh(); setPrioritizeApostilas(e.target.checked); }} className="h-4 w-4 rounded border-gray-300 text-primary-light focus:ring-primary-light" /> <label htmlFor="prioritizeApostilas" className="font-semibold cursor-pointer">Priorizar (Apostila)</label> </div> )}
+            </div>
+            
+            <FontSizeControl fontSize={fontSize} setFontSize={setFontSize} className="mb-4" />
+            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5 mb-6">
+                <div className="bg-primary-light h-2.5 rounded-full" style={{ width: `${stableSortedQuestions.length > 0 ? (((currentQuestionIndex > -1 ? currentQuestionIndex : 0) + 1) / stableSortedQuestions.length) * 100 : 0}%` }}></div>
             </div>
 
-            <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
-                <h2 className="text-2xl font-bold mb-2">⏳ Contagem Regressiva para a Glória (ou para o Pânico)</h2>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4 text-center">
-                    {[{value: timeValues.weeks, label: "Semanas"}, {value: timeValues.days, label: "Dias"}, {value: timeValues.hours, label: "Horas"}, {value: timeValues.minutes, label: "Minutos"}, {value: timeValues.seconds, label: "Segundos"}].map(item => (
-                        <div key={item.label} className="bg-background-light dark:bg-background-dark p-4 rounded-lg">
-                            <div className="text-4xl font-bold text-primary-light dark:text-primary-dark">{item.value.toLocaleString('pt-BR')}</div>
-                            <div className="text-sm text-gray-500 dark:text-gray-400">{item.label}</div>
+            <h2 className={`text-xl font-semibold mb-4 ${FONT_SIZE_CLASSES[fontSize]}`}>{questionToRender?.questionText || 'Carregando enunciado...'}</h2>
+
+            <div className={`space-y-3 ${FONT_SIZE_CLASSES[fontSize]}`}>
+                {displayedOptions.map((option: string, index: number) => {
+                    const isSelected = selectedOption === option;
+                    const isWrongAttempt = wrongAnswers.has(option);
+                    const isCorrect = option === questionToRender.correctAnswer;
+                    const isStruck = struckOptions.has(option);
+
+                    let optionClass = "bg-background-light dark:bg-background-dark border-border-light dark:border-border-dark";
+                    let cursorClass = "cursor-pointer";
+
+                    if (isCompleted) {
+                        cursorClass = "cursor-default";
+                        if (isCorrect) {
+                            optionClass = "bg-green-100 dark:bg-green-900/50 border-green-500";
+                        } else if (isWrongAttempt) { // Use isWrongAttempt which is `wrongAnswers.has(option)`
+                            optionClass = "bg-red-100 dark:bg-red-900/50 border-red-500";
+                        } else {
+                            optionClass += " opacity-60";
+                        }
+                    } else {
+                        if (isStruck) {
+                             optionClass += " opacity-50";
+                        } else if (isWrongAttempt) {
+                             optionClass = "bg-red-100 dark:bg-red-900/50 border-red-500 opacity-60";
+                             cursorClass = "cursor-not-allowed";
+                        }
+                        else if (isSelected) {
+                            optionClass = "bg-primary-light/10 dark:bg-primary-dark/20 border-primary-light dark:border-primary-dark";
+                        } else {
+                             optionClass += " hover:border-primary-light dark:hover:border-primary-dark";
+                        }
+                    }
+
+                    return (
+                        <div key={index} 
+                            onClick={() => {
+                                if (wasLongPress.current || wasSwipe.current) {
+                                    wasLongPress.current = false;
+                                    wasSwipe.current = false;
+                                    return;
+                                }
+                                handleSelectOption(option);
+                            }}
+                             onContextMenu={(e) => { e.preventDefault(); toggleStrike(option); }}
+                             onTouchStart={(e) => handleTouchStart(option, e)}
+                             onTouchEnd={(e) => handleTouchEnd(option, e)}
+                             className={`p-4 border rounded-lg transition-colors ${optionClass} ${cursorClass}`}>
+                             <span className={isStruck ? 'line-through' : ''}>{option}</span>
                         </div>
-                    ))}
-                </div>
+                    );
+                })}
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
-                    <h2 className="text-2xl font-bold mb-4">Como você está se sentindo hoje? 🤔</h2>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                        {MOODS.map(mood => (
-                            <button
-                                key={mood.name}
-                                onClick={() => handleMoodChange(mood.name)}
-                                className={`p-2 rounded-lg text-center transition-all border-2 ${
-                                    currentUserMood === mood.name
-                                        ? `${mood.bgColor} ${mood.borderColor} scale-105 shadow-lg`
-                                        : 'bg-background-light dark:bg-background-dark border-transparent hover:scale-105 hover:shadow-md'
-                                }`}
-                            >
-                                <div className="text-2xl">{mood.emoji}</div>
-                                <div className="text-xs font-semibold mt-1">{mood.name}</div>
-                            </button>
-                        ))}
+            {isCompleted && (
+                <div className="mt-6 p-4 rounded-lg bg-background-light dark:bg-background-dark border border-border-light dark:border-border-dark">
+                    <h3 className={`text-lg font-bold ${selectedOption === questionToRender.correctAnswer ? 'text-green-600' : 'text-red-600'}`}>
+                        {selectedOption === questionToRender.correctAnswer ? "Resposta Correta!" : "Resposta Incorreta!"}
+                    </h3>
+                    <p className="mt-2">{questionToRender.explanation}</p>
+                </div>
+            )}
+            
+             <ContentActions
+                item={questionToRender} contentType='question' currentUser={currentUser} interactions={appData.userContentInteractions}
+                onVote={(id, type, inc) => handleVoteUpdate(setAppData, currentUser, updateUser, appData, 'question', id, type, inc)}
+                onToggleRead={(id, state) => handleInteractionUpdate(setAppData, appData, currentUser, updateUser, 'question', id, { is_read: !state })}
+                onToggleFavorite={(id, state) => handleInteractionUpdate(setAppData, appData, currentUser, updateUser, 'question', id, { is_favorite: !state })}
+                onComment={() => setCommentingOnQuestion(questionToRender)}
+                extraActions={
+                    <button onClick={() => setIsQuestionStatsModalOpen(true)} className="text-gray-500 hover:text-primary-light flex items-center gap-1" title="Ver estatísticas da questão">
+                        <MagnifyingGlassIcon className="w-5 h-5"/>
+                    </button>
+                }
+            />
+
+            <div className="mt-6 flex justify-between items-center">
+                 <div>
+                    <div className="flex items-center gap-2">
+                        <button onClick={() => navigateQuestion(-1)} disabled={currentQuestionIndex === -1 || currentQuestionIndex === 0} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 rounded-md disabled:opacity-50">Anterior</button>
+                        <button onClick={() => navigateQuestion(1)} disabled={currentQuestionIndex === -1 || currentQuestionIndex === stableSortedQuestions.length - 1} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 rounded-md disabled:opacity-50">Próxima</button>
+                    </div>
+                    <div className="mt-2">
+                        <button onClick={handleNextUnanswered} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-sm rounded-md hover:bg-gray-300 dark:hover:bg-gray-600">
+                            Próxima não respondida
+                        </button>
                     </div>
                 </div>
-                 <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
-                     <h2 className="text-2xl font-bold mb-4">🌡️ Termômetro do Humor da Galera</h2>
-                     <ResponsiveContainer width="100%" height={300}>
-                         <BarChart data={moodChartData} layout="vertical" margin={{ top: 5, right: 60, left: 10, bottom: 5 }}>
-                             <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                             <XAxis type="number" hide />
-                             <YAxis dataKey="emoji" type="category" width={60} tickLine={false} axisLine={false} tick={<CustomYAxisTick />} />
-                             <Tooltip 
-                                cursor={{fill: 'rgba(200,200,200,0.1)'}} 
-                                contentStyle={{ backgroundColor: 'rgba(30,30,30,0.8)', border: 'none', color: 'white', borderRadius: '8px' }}
-                                formatter={(value, name, props) => [props.payload.formattedLabel, props.payload.name]}
-                             />
-                             <Bar dataKey="count" fill="#8884d8" barSize={20}>
-                                <LabelList dataKey="formattedLabel" position="right" offset={5} style={{ fill: 'currentColor', fontSize: 12, fontWeight: 'bold' }} />
-                                {moodChartData.map((entry, index) => (
-                                    <Cell key={`cell-${index}`} fill={entry.color} />
-                                ))}
-                             </Bar>
-                         </BarChart>
-                     </ResponsiveContainer>
-                 </div>
+
+                <div className="relative group">
+                    <span className="flex items-center gap-2 text-yellow-600 dark:text-yellow-400">
+                        <LightBulbIcon className="w-5 h-5" /> Dicas ({showAllHints ? questionToRender.hints.length : revealedHints.length}/{questionToRender.hints.length})
+                    </span>
+                </div>
+
+                {isCompleted ? (
+                    <button onClick={handleNextUnanswered} className="px-6 py-2 bg-primary-light text-white font-bold rounded-md hover:bg-indigo-700">
+                        Próxima Questão
+                    </button>
+                ) : (
+                    <button disabled={!selectedOption} onClick={handleConfirmAnswer} className="px-6 py-2 bg-secondary-light text-white font-bold rounded-md hover:bg-emerald-600 disabled:opacity-50">
+                        Confirmar
+                    </button>
+                )}
             </div>
+
+            {(revealedHints.length > 0 || showAllHints) && (
+                <div className="mt-4 p-4 rounded-lg bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-300 dark:border-yellow-700">
+                    <ul className="list-disc list-inside space-y-1">
+                        {(showAllHints ? questionToRender.hints : revealedHints).map((hint, i) => <li key={i}>{hint}</li>)}
+                    </ul>
+                </div>
+            )}
         </div>
+      </>
     );
 };

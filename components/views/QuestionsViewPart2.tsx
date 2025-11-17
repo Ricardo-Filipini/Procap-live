@@ -658,6 +658,9 @@ export const NotebookDetailView: React.FC<{
     const [globalStats, setGlobalStats] = useState<{ questionStats: any[] | null, notebookLeaderboards: any | null }>({ questionStats: null, notebookLeaderboards: null });
     const [isLoadingGlobalStats, setIsLoadingGlobalStats] = useState(true);
 
+    const [stableSortedQuestions, setStableSortedQuestions] = useState<(Question & { user_id: string, created_at: string, source: any})[]>([]);
+    const shouldUpdateStableListRef = useRef(true);
+
     useEffect(() => {
         setIsLoadingGlobalStats(true);
         Promise.all([
@@ -743,7 +746,7 @@ export const NotebookDetailView: React.FC<{
         return (a: Question, b: Question) => (randomValues.get(a.id) ?? 0) - (randomValues.get(b.id) ?? 0);
     }, [questionsInNotebook, shuffleTrigger]);
     
-    const sortedQuestions = useMemo(() => {
+    const liveSortedQuestions = useMemo(() => {
         let questionsToProcess = [...questionsInNotebook];
 
         if (notebook === 'all' && sourceFilter !== 'all') {
@@ -806,32 +809,54 @@ export const NotebookDetailView: React.FC<{
         showUnansweredInAnyNotebook, difficultyFilter, questionErrorRates, difficultyThresholds, sourceFilter
     ]);
 
+    useEffect(() => {
+        if (shouldUpdateStableListRef.current) {
+            setStableSortedQuestions(liveSortedQuestions);
+            shouldUpdateStableListRef.current = false;
+        }
+    }, [liveSortedQuestions]);
+
     const currentQuestionIndex = useMemo(() => {
         if (!activeQuestionId) return -1;
-        return sortedQuestions.findIndex(q => q.id === activeQuestionId);
-    }, [activeQuestionId, sortedQuestions]);
+        return stableSortedQuestions.findIndex(q => q.id === activeQuestionId);
+    }, [activeQuestionId, stableSortedQuestions]);
 
     const currentQuestion = useMemo(() => {
         if (currentQuestionIndex > -1) {
-            return sortedQuestions[currentQuestionIndex];
+            return stableSortedQuestions[currentQuestionIndex];
         }
         // Fallback to find from original list if it was filtered out after answering
         return questionsInNotebook.find(q => q.id === activeQuestionId);
-    }, [currentQuestionIndex, sortedQuestions, questionsInNotebook, activeQuestionId]);
+    }, [currentQuestionIndex, stableSortedQuestions, questionsInNotebook, activeQuestionId]);
+
+     const shuffledOptionsMap = useMemo(() => {
+        if (!shuffleOptions) {
+            return new Map<string, string[]>();
+        }
+        
+        const newMap = new Map<string, string[]>();
+        questionsInNotebook.forEach(question => {
+            const options = [...question.options];
+            // Fisher-Yates shuffle
+            for (let i = options.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [options[i], options[j]] = [options[j], options[i]];
+            }
+            newMap.set(question.id, options);
+        });
+        return newMap;
+    }, [shuffleOptions, questionsInNotebook, shuffleTrigger]); // Added shuffleTrigger
 
      useEffect(() => {
         if (currentQuestion) {
-            const options = [...currentQuestion.options];
-            if (shuffleOptions) {
-                // Fisher-Yates shuffle for stable shuffling within a question view
-                for (let i = options.length - 1; i > 0; i--) {
-                    const j = Math.floor(Math.random() * (i + 1));
-                    [options[i], options[j]] = [options[j], options[i]];
-                }
+            const shuffled = shuffledOptionsMap.get(currentQuestion.id);
+            if (shuffled) {
+                setDisplayedOptions(shuffled);
+            } else {
+                setDisplayedOptions(currentQuestion.options);
             }
-            setDisplayedOptions(options);
         }
-    }, [currentQuestion, shuffleOptions]);
+    }, [currentQuestion, shuffledOptionsMap]);
 
 
     if (currentQuestion) {
@@ -843,7 +868,7 @@ export const NotebookDetailView: React.FC<{
     useEffect(() => {
         // 1. Prioritize explicit navigation from another view or session restoration
         if (questionIdToFocus) {
-            const indexToFocus = sortedQuestions.findIndex(q => q.id === questionIdToFocus);
+            const indexToFocus = stableSortedQuestions.findIndex(q => q.id === questionIdToFocus);
             if (indexToFocus !== -1 && activeQuestionId !== questionIdToFocus) {
                 setActiveQuestionId(questionIdToFocus);
             }
@@ -855,9 +880,9 @@ export const NotebookDetailView: React.FC<{
         if (navigationActionRef.current) {
             const action = navigationActionRef.current;
             const desiredIndex = action === 'sort' ? (preservedIndexRef.current ?? 0) : 0;
-            const newIndex = Math.max(0, Math.min(desiredIndex, sortedQuestions.length - 1));
+            const newIndex = Math.max(0, Math.min(desiredIndex, stableSortedQuestions.length - 1));
             
-            const newQuestion = sortedQuestions[newIndex] || sortedQuestions[0] || null;
+            const newQuestion = stableSortedQuestions[newIndex] || stableSortedQuestions[0] || null;
 
             if (newQuestion && newQuestion.id !== activeQuestionId) {
                 setActiveQuestionId(newQuestion.id);
@@ -871,16 +896,21 @@ export const NotebookDetailView: React.FC<{
         }
 
         // 3. Fallback for initialization
-        if (sortedQuestions.length > 0 && !activeQuestionId) {
-            setActiveQuestionId(sortedQuestions[0].id);
+        if (stableSortedQuestions.length > 0 && !activeQuestionId) {
+            setActiveQuestionId(stableSortedQuestions[0].id);
         }
         
-    }, [sortedQuestions, activeQuestionId, questionIdToFocus]);
-
+    }, [stableSortedQuestions, activeQuestionId, questionIdToFocus]);
+    
+    const triggerListRefresh = () => {
+        shouldUpdateStableListRef.current = true;
+    };
+    
     const handleSortChange = (newSort: typeof questionSortOrder) => {
         consumeFocus();
         navigationActionRef.current = 'sort';
         preservedIndexRef.current = currentQuestionIndex > -1 ? currentQuestionIndex : 0;
+        triggerListRefresh();
         setQuestionSortOrder(newSort);
         if (newSort === 'random') {
             setShuffleTrigger(c => c + 1);
@@ -891,6 +921,7 @@ export const NotebookDetailView: React.FC<{
         consumeFocus();
         navigationActionRef.current = 'filter';
         preservedIndexRef.current = 0;
+        triggerListRefresh();
     };
     
     const handleDifficultyFilterChange = (newDifficulty: typeof difficultyFilter) => {
@@ -915,6 +946,13 @@ export const NotebookDetailView: React.FC<{
     const handleSourceFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         triggerFilterChange();
         setSourceFilter(e.target.value);
+    };
+    
+     const handleShuffleOptionsToggle = () => {
+        triggerListRefresh(); // Although it doesn't change the question list, it ensures consistency if needed
+        setShuffleOptions(s => !s);
+        // Force a re-shuffle of the map, even if `questionsInNotebook` hasn't changed
+        setShuffleTrigger(c => c + 1); 
     };
 
     useEffect(() => {
@@ -1130,13 +1168,13 @@ export const NotebookDetailView: React.FC<{
         consumeFocus();
         let newIndex;
         if (currentQuestionIndex < 0) { // Current question was filtered out
-            newIndex = direction === 1 ? 0 : sortedQuestions.length - 1;
+            newIndex = direction === 1 ? 0 : stableSortedQuestions.length - 1;
         } else {
             newIndex = currentQuestionIndex + direction;
         }
         
-        if (newIndex >= 0 && newIndex < sortedQuestions.length) {
-            setActiveQuestionId(sortedQuestions[newIndex].id);
+        if (newIndex >= 0 && newIndex < stableSortedQuestions.length) {
+            setActiveQuestionId(stableSortedQuestions[newIndex].id);
         }
     };
     
@@ -1145,8 +1183,8 @@ export const NotebookDetailView: React.FC<{
         let nextIndex = -1;
         const startIndex = currentQuestionIndex > -1 ? currentQuestionIndex : -1;
 
-        for (let i = startIndex + 1; i < sortedQuestions.length; i++) {
-            if (!userAnswers.has(sortedQuestions[i].id)) {
+        for (let i = startIndex + 1; i < stableSortedQuestions.length; i++) {
+            if (!userAnswers.has(stableSortedQuestions[i].id)) {
                 nextIndex = i;
                 break;
             }
@@ -1154,7 +1192,7 @@ export const NotebookDetailView: React.FC<{
         
         if (nextIndex === -1) {
             for (let i = 0; i < startIndex; i++) {
-                if (!userAnswers.has(sortedQuestions[i].id)) {
+                if (!userAnswers.has(stableSortedQuestions[i].id)) {
                     nextIndex = i;
                     break;
                 }
@@ -1162,7 +1200,7 @@ export const NotebookDetailView: React.FC<{
         }
 
         if (nextIndex !== -1) {
-            setActiveQuestionId(sortedQuestions[nextIndex].id);
+            setActiveQuestionId(stableSortedQuestions[nextIndex].id);
         } else {
             alert("Parabéns! Você respondeu todas as questões deste caderno com os filtros atuais.");
         }
@@ -1215,7 +1253,7 @@ export const NotebookDetailView: React.FC<{
                             return false; 
                         })
                     }));
-                    if(sortedQuestions.length > 0) setActiveQuestionId(sortedQuestions[0].id);
+                    if(stableSortedQuestions.length > 0) setActiveQuestionId(stableSortedQuestions[0].id);
                 } else {
                     alert("Não foi possível limpar as respostas.");
                 }
@@ -1243,7 +1281,7 @@ export const NotebookDetailView: React.FC<{
                                 return false; 
                             })
                         }));
-                        if(sortedQuestions.length > 0) setActiveQuestionId(sortedQuestions[0].id);
+                        if(stableSortedQuestions.length > 0) setActiveQuestionId(stableSortedQuestions[0].id);
                     } else {
                         alert("Não foi possível limpar as respostas.");
                     }
@@ -1273,7 +1311,7 @@ export const NotebookDetailView: React.FC<{
                         </button>
                     </div>
                     <div className="text-right">
-                        <span className="font-semibold">{(currentQuestionIndex > -1 ? currentQuestionIndex : 0) + 1} / {sortedQuestions.length}</span>
+                        <span className="font-semibold">{(currentQuestionIndex > -1 ? currentQuestionIndex : 0) + 1} / {stableSortedQuestions.length}</span>
                     </div>
                 </div>
                 <div className="w-full text-left md:text-right text-xs text-gray-500 dark:text-gray-400 mt-2">
@@ -1289,7 +1327,7 @@ export const NotebookDetailView: React.FC<{
                     <button title="Temperatura" onClick={() => handleSortChange('temp')} className={`p-2 rounded-full transition ${questionSortOrder === 'temp' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🌡️</button>
                     <button title="Mais Recentes" onClick={() => handleSortChange('date')} className={`p-2 rounded-full transition ${questionSortOrder === 'date' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🕐</button>
                     <button title="Aleatória" onClick={() => handleSortChange('random')} className={`p-2 rounded-full transition ${questionSortOrder === 'random' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🔀</button>
-                    <button title="Embaralhar Alternativas" onClick={() => setShuffleOptions(s => !s)} className={`p-2 rounded-full transition ${shuffleOptions ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🎲</button>
+                    <button title="Embaralhar Alternativas" onClick={handleShuffleOptionsToggle} className={`p-2 rounded-full transition ${shuffleOptions ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🎲</button>
                 </div>
                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-semibold">Filtrar por Dificuldade:</span>
@@ -1317,12 +1355,12 @@ export const NotebookDetailView: React.FC<{
                         </select>
                     </div>
                 )}
-                {notebook === 'all' && ( <div className="flex items-center gap-2"> <input type="checkbox" id="prioritizeApostilas" checked={prioritizeApostilas} onChange={e => setPrioritizeApostilas(e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-primary-light focus:ring-primary-light" /> <label htmlFor="prioritizeApostilas" className="font-semibold cursor-pointer">Priorizar (Apostila)</label> </div> )}
+                {notebook === 'all' && ( <div className="flex items-center gap-2"> <input type="checkbox" id="prioritizeApostilas" checked={prioritizeApostilas} onChange={e => { triggerListRefresh(); setPrioritizeApostilas(e.target.checked); }} className="h-4 w-4 rounded border-gray-300 text-primary-light focus:ring-primary-light" /> <label htmlFor="prioritizeApostilas" className="font-semibold cursor-pointer">Priorizar (Apostila)</label> </div> )}
             </div>
             
             <FontSizeControl fontSize={fontSize} setFontSize={setFontSize} className="mb-4" />
             <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5 mb-6">
-                <div className="bg-primary-light h-2.5 rounded-full" style={{ width: `${sortedQuestions.length > 0 ? (((currentQuestionIndex > -1 ? currentQuestionIndex : 0) + 1) / sortedQuestions.length) * 100 : 0}%` }}></div>
+                <div className="bg-primary-light h-2.5 rounded-full" style={{ width: `${stableSortedQuestions.length > 0 ? (((currentQuestionIndex > -1 ? currentQuestionIndex : 0) + 1) / stableSortedQuestions.length) * 100 : 0}%` }}></div>
             </div>
 
             <h2 className={`text-xl font-semibold mb-4 ${FONT_SIZE_CLASSES[fontSize]}`}>{questionToRender?.questionText || 'Carregando enunciado...'}</h2>
@@ -1406,7 +1444,7 @@ export const NotebookDetailView: React.FC<{
                  <div>
                     <div className="flex items-center gap-2">
                         <button onClick={() => navigateQuestion(-1)} disabled={currentQuestionIndex === -1 || currentQuestionIndex === 0} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 rounded-md disabled:opacity-50">Anterior</button>
-                        <button onClick={() => navigateQuestion(1)} disabled={currentQuestionIndex === -1 || currentQuestionIndex === sortedQuestions.length - 1} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 rounded-md disabled:opacity-50">Próxima</button>
+                        <button onClick={() => navigateQuestion(1)} disabled={currentQuestionIndex === -1 || currentQuestionIndex === stableSortedQuestions.length - 1} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 rounded-md disabled:opacity-50">Próxima</button>
                     </div>
                     <div className="mt-2">
                         <button onClick={handleNextUnanswered} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-sm rounded-md hover:bg-gray-300 dark:hover:bg-gray-600">

@@ -1,4 +1,7 @@
 
+
+
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { MainContentProps } from '../../types';
 import { Question, Comment, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer, Source } from '../../types';
@@ -43,7 +46,7 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
                 appData.userQuestionAnswers.length === 0 ? getUserQuestionAnswers(currentUser.id) : Promise.resolve(null),
                 appData.userNotebookInteractions.length === 0 ? getUserNotebookInteractions(currentUser.id) : Promise.resolve(null),
                 !appData.sources.some(s => s.questions?.length > 0) ? getQuestions() : Promise.resolve(null),
-                !appData.sources.some((s: Source) => s.questions?.length > 0) ? getSourcesBase() : Promise.resolve(null),
+                !appData.sources.some(s => s.questions?.length > 0) ? getSourcesBase() : Promise.resolve(null),
             ]).then(([notebooks, answers, interactions, questions, sources]) => {
                 setAppData(prev => {
                     const newState = { ...prev };
@@ -132,6 +135,9 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
         if (selectedNotebook) {
             const idToSave = selectedNotebook === 'all' ? 'all' : selectedNotebook.id;
             localStorage.setItem('procap_lastNotebookId', idToSave);
+        } else {
+            localStorage.removeItem('procap_lastNotebookId');
+            localStorage.removeItem('procap_lastQuestionId');
         }
     }, [selectedNotebook]);
 
@@ -218,3 +224,74 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
                 return grouped;
             default:
                 return notebooks;
+        }
+    }, [appData.questionNotebooks, sort]);
+
+    if (isLoadingContent) {
+        return <div className="text-center p-8">Carregando questões e cadernos...</div>;
+    }
+
+    if (selectedNotebook) {
+        return <NotebookDetailView 
+            notebook={selectedNotebook}
+            allQuestions={allItems}
+            appData={appData}
+            setAppData={setAppData}
+            currentUser={currentUser}
+            updateUser={updateUser}
+            onBack={() => {
+                setSelectedNotebook(null);
+                setQuestionIdToFocus(null);
+            }}
+            questionIdToFocus={questionIdToFocus}
+            onFocusConsumed={handleFocusConsumed}
+            setScreenContext={setScreenContext}
+        />
+    }
+
+    const renderGrid = (items: QuestionNotebook[]) => (
+        <NotebookGridView 
+            notebooks={items}
+            appData={appData}
+            setAppData={setAppData}
+            currentUser={currentUser}
+            updateUser={updateUser}
+            onSelectNotebook={setSelectedNotebook}
+            handleNotebookInteractionUpdate={handleNotebookInteractionUpdate}
+            handleNotebookVote={handleNotebookVote}
+            setCommentingOnNotebook={setCommentingOnNotebook}
+        />
+    )
+
+    return (
+        <>
+            <CommentsModal 
+                isOpen={!!commentingOnNotebook}
+                onClose={() => setCommentingOnNotebook(null)}
+                comments={commentingOnNotebook?.comments || []}
+                onAddComment={(text) => handleNotebookCommentAction('add', { text })}
+                onVoteComment={(id, type) => handleNotebookCommentAction('vote', { commentId: id, voteType: type })}
+                contentTitle={commentingOnNotebook?.name || ''}
+            />
+            <ContentToolbar 
+                sort={sort} 
+                setSort={setSort} 
+                supportedSorts={['temp', 'time', 'user']}
+            />
+            
+            <div className="space-y-6">
+                {Array.isArray(processedNotebooks) 
+                    ? renderGrid(processedNotebooks)
+                    : Object.entries(processedNotebooks as Record<string, QuestionNotebook[]>).map(([groupKey, items]: [string, QuestionNotebook[]]) => (
+                        <details key={groupKey} className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark">
+                             <summary className="text-xl font-bold cursor-pointer">{sort === 'user' ? (appData.users.find(u => u.id === groupKey)?.pseudonym || 'Desconhecido') : groupKey}</summary>
+                            <div className="mt-4 pt-4 border-t border-border-light dark:border-border-dark space-y-4">
+                               {renderGrid(items)}
+                            </div>
+                        </details>
+                    ))
+                }
+            </div>
+        </>
+    );
+};

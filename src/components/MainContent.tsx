@@ -1,6 +1,5 @@
 
 
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { Theme, View, AppData, User, MainContentProps } from '../types';
 import { VIEWS } from '../constants';
@@ -61,10 +60,12 @@ export const MainContent: React.FC<MainContentProps> = (props) => {
         return <ContagemView {...viewProps} />;
       case 'Resumos':
         return <SummariesView {...viewProps} />;
+// FIX: Removed the `allItems` prop from FlashcardsView as it now calculates this internally.
       case 'Flashcards':
         return <FlashcardsView {...viewProps} />;
       case 'Questões':
         return <QuestionsView {...viewProps} />;
+// FIX: Removed the `allItems` prop from LinksFilesView as it now calculates this internally.
       case 'Links/Arquivos':
         return <LinksFilesView {...viewProps} />;
       case 'Mapas Mentais':

@@ -1,6 +1,8 @@
 
+
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { AppData, User, ChatMessage, MainContentProps, XpEvent } from '../../types';
+// FIX: Added missing icon imports
 import { PaperAirplaneIcon, MinusIcon, PlusIcon, PlayIcon, PauseIcon, ArrowPathIcon } from '../Icons';
 import { FontSizeControl, FONT_SIZE_CLASSES } from '../shared/FontSizeControl';
 import { addChatMessage, supabase, upsertUserVote, incrementMessageVote, updateUser as supabaseUpdateUser, logXpEvent, getCommunityData } from '../../services/supabaseClient';
