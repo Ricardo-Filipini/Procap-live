@@ -4,7 +4,6 @@ import { Source } from '../../types';
 import { CloudArrowUpIcon, DocumentTextIcon, PencilIcon, PlusIcon, SparklesIcon, TrashIcon, MinusIcon, DownloadIcon } from '../Icons';
 import { Modal } from '../Modal';
 import { processAndGenerateAllContentFromSource, generateImageForMindMap, generateMoreMindMapTopicsFromSource, generateMoreQuestionsFromSource, generateMoreSummariesFromSource, generateMoreFlashcardsFromSource } from '../../services/geminiService';
-// FIX: Replaced incrementVoteCount with incrementSourceVote for type safety and correctness.
 import { addSource, addGeneratedContent, updateSource, deleteSource, upsertUserVote, incrementSourceVote, updateUser as supabaseUpdateUser, updateContentComments, appendGeneratedContentToSource, addSourceComment } from '../../services/supabaseClient';
 import { supabase } from '../../services/supabaseClient';
 import * as pdfjsLib from 'pdfjs-dist/build/pdf.mjs';
@@ -172,7 +171,6 @@ const AddSourceModal: React.FC<{
                     <div>
                         <h4 className="font-semibold text-sm mb-1">Arquivos Selecionados:</h4>
                         <ul className="text-xs list-disc list-inside bg-background-light dark:bg-background-dark p-2 rounded-md">
-                            {/* FIX: Explicitly type `f` as `File` to allow access to `.name` property. */}
                             {Array.from(files).map((f: File) => <li key={f.name}>{f.name}</li>)}
                         </ul>
                     </div>
@@ -498,7 +496,6 @@ export const SourcesView: React.FC<SourcesViewProps> = ({ appData, setAppData, c
         });
 
         await upsertUserVote('user_source_votes', { user_id: currentUser.id, source_id: sourceId, hot_votes_increment: type === 'hot' ? increment : 0, cold_votes_increment: type === 'cold' ? increment : 0 }, ['user_id', 'source_id']);
-        // FIX: Replaced the generic incrementVoteCount with the specific incrementSourceVote function.
         await incrementSourceVote(sourceId, `${type}_votes`, increment);
         
         const source = appData.sources.find(s => s.id === sourceId);
@@ -506,7 +503,6 @@ export const SourcesView: React.FC<SourcesViewProps> = ({ appData, setAppData, c
             const author = appData.users.find(u => u.id === source.user_id);
             if (author) {
                 const xpChange = (type === 'hot' ? 1 : -1) * increment;
-                // FIX: Defensively cast `author.xp` to a number before performing addition to prevent runtime errors with potentially malformed data.
                 const updatedAuthor = { ...author, xp: Math.max(0, (Number(author.xp) || 0) + xpChange) };
                 const result = await supabaseUpdateUser(updatedAuthor);
                 if (result) {

@@ -1,14 +1,12 @@
 
-
-
-
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { AreaChart, Area, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
+// FIX: Import Question and Source types to correctly type the reconstructed question map.
 import { MainContentProps, StudyPlan, XpEvent, User, Question, Source } from '../../types';
 import { UserCircleIcon, SparklesIcon } from '../Icons';
 import { getPersonalizedStudyPlan } from '../../services/geminiService';
 import { FontSizeControl, FONT_SIZE_CLASSES_LARGE } from '../shared/FontSizeControl';
-import { addStudyPlan, logXpEvent, getUserQuestionAnswers, getUserContentInteractions, getUserStudyPlans, getSourcesBase, getQuestions, getUserXpEvents } from '../../services/supabaseClient';
+import { addStudyPlan, logXpEvent } from '../../services/supabaseClient';
 
 interface ProfileViewProps extends Pick<MainContentProps, 'currentUser' | 'appData' | 'setAppData' | 'updateUser'> {
   onNavigate: (viewName: string, term: string, id: string) => void;
@@ -31,66 +29,7 @@ const CustomYAxisTick: React.FC<any> = ({ x, y, payload }) => {
 
 export const ProfileView: React.FC<ProfileViewProps> = ({ currentUser: user, appData, setAppData, updateUser, onNavigate }) => {
     const [activeTab, setActiveTab] = useState<'geral' | 'topico' | 'caderno' | 'evolucao'>('geral');
-    const [isLoading, setIsLoading] = useState(false);
-
-    useEffect(() => {
-        const needsData = 
-            appData.userQuestionAnswers.length === 0 ||
-            appData.userContentInteractions.length === 0 ||
-            appData.studyPlans.length === 0 ||
-            appData.xp_events.length === 0 ||
-            !appData.sources.some(s => s.questions?.length > 0);
-
-        if (needsData) {
-            setIsLoading(true);
-            Promise.all([
-                appData.userQuestionAnswers.length === 0 ? getUserQuestionAnswers(user.id) : Promise.resolve(null),
-                appData.userContentInteractions.length === 0 ? getUserContentInteractions(user.id) : Promise.resolve(null),
-                appData.studyPlans.length === 0 ? getUserStudyPlans(user.id) : Promise.resolve(null),
-                appData.xp_events.length === 0 ? getUserXpEvents(user.id) : Promise.resolve(null), // Only fetch if community view hasn't already
-                !appData.sources.some(s => s.questions?.length > 0) ? getQuestions() : Promise.resolve(null),
-                !appData.sources.some(s => s.questions?.length > 0) ? getSourcesBase() : Promise.resolve(null),
-            ]).then(([answers, interactions, plans, xpEvents, questions, sources]) => {
-                setAppData(prev => {
-                    const newState = { ...prev };
-                    if (answers) newState.userQuestionAnswers = answers;
-                    if (interactions) newState.userContentInteractions = interactions;
-                    if (plans) newState.studyPlans = plans;
-                    if (xpEvents) newState.xp_events = [...prev.xp_events, ...xpEvents].filter((v,i,a)=>a.findIndex(t=>(t.id === v.id))===i);
-
-                    if (questions && sources) {
-                        const questionsBySource = new Map<string, Question[]>();
-                        questions.forEach(q => {
-                            const list = questionsBySource.get(q.source_id) || [];
-                            list.push(q);
-                            questionsBySource.set(q.source_id, list);
-                        });
-
-                        const newSources = [...prev.sources];
-                        const sourceMap = new Map(newSources.map(s => [s.id, s]));
-
-                        sources.forEach(source => {
-                            if (!sourceMap.has(source.id)) {
-                                sourceMap.set(source.id, source);
-                            }
-                        });
-
-                        sourceMap.forEach(source => {
-                            source.questions = questionsBySource.get(source.id) || source.questions || [];
-                        });
-                        
-                        newState.sources = Array.from(sourceMap.values());
-                    }
-                    return newState;
-                });
-            }).catch(e => {
-                console.error("Failed to load Profile data", e);
-            }).finally(() => {
-                setIsLoading(false);
-            });
-        }
-    }, [appData, user.id, setAppData]);
-
+    
     const recalculatedStats = useMemo(() => {
         const userAnswers = appData.userQuestionAnswers.filter(a => a.user_id === user.id);
 
@@ -326,9 +265,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ currentUser: user, app
         return <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap">{parts}</div>;
     };
 
-    if (isLoading) {
-        return <div className="text-center p-8">Carregando dados do perfil...</div>;
-    }
 
     return (
         <div className={FONT_SIZE_CLASSES_LARGE[fontSize]}>

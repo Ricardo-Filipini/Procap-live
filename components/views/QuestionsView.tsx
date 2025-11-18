@@ -1,90 +1,78 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { MainContentProps } from '../../types';
-import { Question, Comment, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer, Source } from '../../types';
+import { Question, Comment, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer } from '../../types';
 import { CommentsModal } from '../shared/CommentsModal';
 import { ContentToolbar } from '../shared/ContentToolbar';
 import { checkAndAwardAchievements } from '../../lib/achievements';
 import { handleInteractionUpdate, handleVoteUpdate } from '../../lib/content';
-import { addQuestionNotebook, upsertUserVote, incrementNotebookVote, updateContentComments, updateUser as supabaseUpdateUser, upsertUserQuestionAnswer, clearNotebookAnswers, supabase, getQuestions, getSourcesBase, getQuestionNotebooks, getUserQuestionAnswers, getUserNotebookInteractions } from '../../services/supabaseClient';
+// FIX: Replaced incrementVoteCount with incrementNotebookVote for type safety and correctness.
+import { addQuestionNotebook, upsertUserVote, incrementNotebookVote, updateContentComments, updateUser as supabaseUpdateUser, upsertUserQuestionAnswer, clearNotebookAnswers, supabase, getQuestions, getInteractionsData } from '../../services/supabaseClient';
 import { NotebookDetailView, NotebookGridView } from './QuestionsViewPart2';
 
 type SortOption = 'temp' | 'time' | 'subject' | 'user' | 'source';
 
+// Fix: Removed the incompatible 'navTarget' override. The correct type is inherited from MainContentProps.
 interface QuestionsViewProps extends MainContentProps {
+    allItems: (Question & { user_id: string, created_at: string, source: any})[];
     clearNavTarget: () => void;
 }
 
-export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppData, currentUser, updateUser, navTarget, clearNavTarget, setScreenContext }) => {
+export const QuestionsView: React.FC<QuestionsViewProps> = ({ allItems, appData, setAppData, currentUser, updateUser, navTarget, clearNavTarget, setScreenContext }) => {
     const [isLoadingContent, setIsLoadingContent] = useState(false);
+    const [isLoadingInteractions, setIsLoadingInteractions] = useState(false);
     const [selectedNotebook, setSelectedNotebook] = useState<QuestionNotebook | 'all' | null>(null);
     const [commentingOnNotebook, setCommentingOnNotebook] = useState<QuestionNotebook | null>(null);
     const [sort, setSort] = useState<SortOption>('temp');
     const [questionIdToFocus, setQuestionIdToFocus] = useState<string | null>(null);
     const [restoredFromStorage, setRestoredFromStorage] = useState(false);
-
-
-    const allItems = useMemo(() => appData.sources.flatMap(s => (s.questions || []).map(q => ({ ...q, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
-    
-    const handleFocusConsumed = () => {
-        setQuestionIdToFocus(null);
-    };
     
     useEffect(() => {
-        const needsData =
-            !appData.sources.some(s => s.questions?.length > 0) ||
-            appData.questionNotebooks.length === 0 ||
-            appData.userQuestionAnswers.length === 0 ||
-            appData.userNotebookInteractions.length === 0;
-
-        if (needsData) {
+        const areContentLoaded = allItems.length > 0;
+        if (!areContentLoaded && appData.sources.length > 0) {
             setIsLoadingContent(true);
-            Promise.all([
-                appData.questionNotebooks.length === 0 ? getQuestionNotebooks() : Promise.resolve(null),
-                appData.userQuestionAnswers.length === 0 ? getUserQuestionAnswers(currentUser.id) : Promise.resolve(null),
-                appData.userNotebookInteractions.length === 0 ? getUserNotebookInteractions(currentUser.id) : Promise.resolve(null),
-                !appData.sources.some(s => s.questions?.length > 0) ? getQuestions() : Promise.resolve(null),
-                !appData.sources.some((s: Source) => s.questions?.length > 0) ? getSourcesBase() : Promise.resolve(null),
-            ]).then(([notebooks, answers, interactions, questions, sources]) => {
+            getQuestions().then(allQuestions => {
                 setAppData(prev => {
-                    const newState = { ...prev };
-                    
-                    if (notebooks) newState.questionNotebooks = notebooks;
-                    if (answers) newState.userQuestionAnswers = answers;
-                    if (interactions) newState.userNotebookInteractions = interactions;
-
-                    if (questions && sources) {
-                        const questionsBySource = new Map<string, Question[]>();
-                        questions.forEach(q => {
-                            const list = questionsBySource.get(q.source_id) || [];
-                            list.push(q);
-                            questionsBySource.set(q.source_id, list);
-                        });
-
-                        const newSources = [...prev.sources];
-                        const sourceMap = new Map(newSources.map(s => [s.id, s]));
-
-                        sources.forEach(source => {
-                            if (!sourceMap.has(source.id)) {
-                                sourceMap.set(source.id, source);
-                            }
-                        });
-
-                        sourceMap.forEach(source => {
-                            source.questions = questionsBySource.get(source.id) || source.questions || [];
-                        });
-                        
-                        newState.sources = Array.from(sourceMap.values());
-                    }
-                    return newState;
+                    const sourcesWithContent = prev.sources.map(source => ({
+                        ...source,
+                        questions: allQuestions.filter(q => q.source_id === source.id)
+                    }));
+                    return { ...prev, sources: sourcesWithContent };
                 });
-            }).catch(e => {
-                console.error("Failed to load QuestionsView data", e);
-            }).finally(() => {
                 setIsLoadingContent(false);
             });
         }
-    }, [appData, currentUser.id, setAppData]);
-    
+    }, [appData.sources, setAppData, allItems]);
+
+    useEffect(() => {
+        const areInteractionsLoaded = appData.userNotebookInteractions.length > 0;
+        if (!areInteractionsLoaded) {
+            setIsLoadingInteractions(true);
+            getInteractionsData().then(data => {
+                setAppData(prev => ({...prev, ...data}));
+                setIsLoadingInteractions(false);
+            }).catch(() => setIsLoadingInteractions(false));
+        }
+    }, [appData.userNotebookInteractions.length, setAppData]);
+
+    // Restore from localStorage on initial mount
+    useEffect(() => {
+        if (appData.questionNotebooks.length > 0 && !restoredFromStorage && !navTarget) {
+            const savedNotebookId = localStorage.getItem('procap_lastNotebookId');
+            if (savedNotebookId) {
+                const notebook = savedNotebookId === 'all' ? 'all' : appData.questionNotebooks.find(n => n.id === savedNotebookId);
+                if (notebook) {
+                    setSelectedNotebook(notebook);
+                    setQuestionIdToFocus(localStorage.getItem('procap_lastQuestionId'));
+                } else {
+                    // Clean up invalid data from storage
+                    localStorage.removeItem('procap_lastNotebookId');
+                    localStorage.removeItem('procap_lastQuestionId');
+                }
+            }
+            setRestoredFromStorage(true); // Ensure this runs only once
+        }
+    }, [appData.questionNotebooks, restoredFromStorage, navTarget]);
+
     // Handle explicit navigation from other views
     useEffect(() => {
         if (navTarget?.id) {
@@ -108,31 +96,12 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
         }
     }, [navTarget, clearNavTarget, appData.questionNotebooks]);
 
-    // Restore from localStorage on initial mount, only if not navigating explicitly
-    useEffect(() => {
-        if (appData.questionNotebooks.length > 0 && !restoredFromStorage && !navTarget) {
-            const savedNotebookId = localStorage.getItem('procap_lastNotebookId');
-            if (savedNotebookId) {
-                const notebook = savedNotebookId === 'all' ? 'all' : appData.questionNotebooks.find(n => n.id === savedNotebookId);
-                if (notebook) {
-                    setSelectedNotebook(notebook);
-                    setQuestionIdToFocus(localStorage.getItem('procap_lastQuestionId'));
-                } else {
-                    localStorage.removeItem('procap_lastNotebookId');
-                    localStorage.removeItem('procap_lastQuestionId');
-                }
-            }
-            setRestoredFromStorage(true); // Ensure this logic runs only once per session
-        }
-    }, [appData.questionNotebooks, restoredFromStorage, navTarget]);
-
     // Save current notebook to localStorage
     useEffect(() => {
         if (selectedNotebook) {
             const idToSave = selectedNotebook === 'all' ? 'all' : selectedNotebook.id;
             localStorage.setItem('procap_lastNotebookId', idToSave);
-        } else if (selectedNotebook === null) {
-            // When user explicitly goes back to the list, clear storage so a refresh doesn't bring them back in.
+        } else {
             localStorage.removeItem('procap_lastNotebookId');
             localStorage.removeItem('procap_lastQuestionId');
         }
@@ -164,6 +133,7 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
         
         setAppData(prev => ({ ...prev, questionNotebooks: prev.questionNotebooks.map(n => n.id === notebookId ? { ...n, [`${type}_votes`]: n[`${type}_votes`] + increment } : n) }));
         
+        // FIX: Replaced the generic incrementVoteCount with the specific incrementNotebookVote function.
         await incrementNotebookVote(notebookId, `${type}_votes`, increment);
         
         const notebook = appData.questionNotebooks.find(n => n.id === notebookId);
@@ -173,6 +143,7 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
                 const author = appData.users.find(u => u.id === authorId);
                 if (author) {
                     const xpChange = (type === 'hot' ? 1 : -1) * increment;
+                    // FIX: Defensively cast `author.xp` to a number before performing addition to prevent runtime errors with potentially malformed data.
                     const updatedAuthor = { ...author, xp: (Number(author.xp) || 0) + xpChange };
                     const result = await supabaseUpdateUser(updatedAuthor);
                     if (result) {
@@ -202,6 +173,7 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
     };
     
     const processedNotebooks = useMemo(() => {
+        // Fix: Explicitly type `notebooks` to resolve type inference issues.
         const notebooks: QuestionNotebook[] = [...appData.questionNotebooks];
         switch (sort) {
             case 'time':
@@ -224,9 +196,6 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
         }
     }, [appData.questionNotebooks, sort]);
 
-    if (isLoadingContent) {
-        return <div className="text-center p-8">Carregando questões e cadernos...</div>;
-    }
 
     if (selectedNotebook) {
         return <NotebookDetailView 
@@ -241,7 +210,6 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
                 setQuestionIdToFocus(null);
             }}
             questionIdToFocus={questionIdToFocus}
-            onFocusConsumed={handleFocusConsumed}
             setScreenContext={setScreenContext}
         />
     }
@@ -276,19 +244,21 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
                 supportedSorts={['temp', 'time', 'user']}
             />
             
-            <div className="space-y-6">
-                {Array.isArray(processedNotebooks) 
-                    ? renderGrid(processedNotebooks)
-                    : Object.entries(processedNotebooks as Record<string, QuestionNotebook[]>).map(([groupKey, items]: [string, QuestionNotebook[]]) => (
-                        <details key={groupKey} className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark">
-                             <summary className="text-xl font-bold cursor-pointer">{sort === 'user' ? (appData.users.find(u => u.id === groupKey)?.pseudonym || 'Desconhecido') : groupKey}</summary>
-                            <div className="mt-4 pt-4 border-t border-border-light dark:border-border-dark space-y-4">
-                               {renderGrid(items)}
-                            </div>
-                        </details>
-                    ))
-                }
-            </div>
+             {isLoadingContent || isLoadingInteractions ? <div className="text-center p-8">Carregando cadernos...</div> : (
+                <div className="space-y-6">
+                    {Array.isArray(processedNotebooks) 
+                        ? renderGrid(processedNotebooks)
+                        : Object.entries(processedNotebooks as Record<string, QuestionNotebook[]>).map(([groupKey, items]: [string, QuestionNotebook[]]) => (
+                            <details key={groupKey} className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark">
+                                <summary className="text-xl font-bold cursor-pointer">{sort === 'user' ? (appData.users.find(u => u.id === groupKey)?.pseudonym || 'Desconhecido') : groupKey}</summary>
+                                <div className="mt-4 pt-4 border-t border-border-light dark:border-border-dark space-y-4">
+                                {renderGrid(items)}
+                                </div>
+                            </details>
+                        ))
+                    }
+                </div>
+            )}
         </>
     );
 };

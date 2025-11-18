@@ -1,12 +1,11 @@
 
 
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { MainContent } from './components/MainContent';
 import { Theme, User, AppData, View, ProcessingTask, AgentSettings, LiveAgentStatus } from './types';
 import { INITIAL_APP_DATA, VIEWS, DEFAULT_AGENT_SETTINGS } from './constants';
-import { getInitialData, createUser, updateUser as supabaseUpdateUser } from './services/supabaseClient';
+import { getCoreData, getUsers, createUser, updateUser as supabaseUpdateUser } from './services/supabaseClient';
 import { LiveAgent } from './components/LiveAgent';
 import { AgentSettingsModal } from './components/AgentSettingsModal';
 
@@ -33,7 +32,6 @@ const App: React.FC = () => {
   const [isLiveAgentActive, setIsLiveAgentActive] = useState(false);
   const [liveAgentStatus, setLiveAgentStatus] = useState<LiveAgentStatus>('inactive');
   const [isAgentSettingsOpen, setIsAgentSettingsOpen] = useState(false);
-  // FIX: Made the 'term' property optional in the navTarget state type to match its usage and fix the type error.
   const [navTarget, setNavTarget] = useState<{viewName: string, term?: string, id?: string, subId?: string} | null>(null);
   const [screenContext, setScreenContext] = useState<string | null>(null);
   const [agentSettings, setAgentSettings] = useState<AgentSettings>(() => {
@@ -46,38 +44,55 @@ const App: React.FC = () => {
       localStorage.setItem('procap_agent_settings', JSON.stringify(agentSettings));
   }, [agentSettings]);
 
-  // Load only essential user data on initial load
+  // Stage 1: Fetch only users for login screen
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchLoginData = async () => {
       setIsLoading(true);
       setError(null);
       try {
-        // FIX: Correctly handle the response object from getInitialData.
-        const response = await getInitialData();
-        if (response.error) {
-            throw new Error(response.error);
-        }
-        setAppData(response.data);
-        // Restore user session if available from localStorage
+        const { users, error } = await getUsers();
+        if (error) throw new Error(error);
+        
+        const initialAppData = { ...INITIAL_APP_DATA, users };
+        setAppData(initialAppData);
+        
         const savedUserId = localStorage.getItem('procap_lastUserId');
-        if (savedUserId) {
-          const userToLogin = response.data.users.find(u => u.id === savedUserId);
-          if (userToLogin) {
-            setCurrentUser(userToLogin);
-          } else {
-            // Clear invalid ID if user is not found
-            localStorage.removeItem('procap_lastUserId');
-          }
+        const userToLogin = savedUserId ? users.find(u => u.id === savedUserId) : null;
+        
+        if (userToLogin) {
+          setCurrentUser(userToLogin); // This will trigger the next useEffect to fetch core data
+        } else {
+          setIsLoading(false); // No saved user, proceed to login screen
         }
       } catch (e: any) {
-        console.error("Error fetching initial data from Supabase", e);
-        setError("Não foi possível carregar os dados iniciais da plataforma. Verifique sua conexão e recarregue a página.");
-      } finally {
+        console.error("Error fetching login data", e);
+        setError("Falha na conexão com o banco de dados. Por favor, recarregue a página.");
         setIsLoading(false);
       }
     };
-    fetchData();
+    fetchLoginData();
   }, []);
+
+  // Stage 2: Fetch core app data after user is logged in
+  useEffect(() => {
+    if (currentUser && appData.sources.length === 0) { // Check if core data hasn't been loaded
+      const fetchCoreData = async () => {
+        setIsLoading(true);
+        try {
+          const { data, error } = await getCoreData(currentUser.id);
+          if (error) throw new Error(error);
+          
+          setAppData(prev => ({ ...prev, ...data }));
+        } catch (e: any) {
+          console.error("Error fetching core app data", e);
+          setError("Falha ao carregar os dados da plataforma. Tente recarregar a página.");
+        } finally {
+          setIsLoading(false);
+        }
+      };
+      fetchCoreData();
+    }
+  }, [currentUser, appData.sources]);
   
   const addXpToast = (amount: number) => {
     const newToast = { id: Date.now(), amount };
@@ -178,6 +193,8 @@ const App: React.FC = () => {
       localStorage.removeItem('procap_lastView');
       localStorage.removeItem('procap_lastNotebookId');
       localStorage.removeItem('procap_lastQuestionId');
+      // Reset app data to avoid showing previous user's data on next login
+      setAppData(INITIAL_APP_DATA);
   };
   
   const updateUser = async (updatedUser: User) => {
@@ -202,10 +219,10 @@ const App: React.FC = () => {
       }
   };
 
-  if (isLoading) {
+  if (isLoading && !currentUser) { // Show loading only before login screen is ready
     return (
         <div className="w-full h-screen flex items-center justify-center bg-background-light dark:bg-background-dark text-foreground-light dark:text-foreground-dark">
-            <div className="text-xl font-semibold">Carregando plataforma...</div>
+            <div className="text-xl font-semibold">Carregando...</div>
         </div>
     );
   }
@@ -224,6 +241,15 @@ const App: React.FC = () => {
   if (!currentUser) {
     return <LoginScreen onLogin={handleLogin} users={appData.users} />;
   }
+  
+  if (isLoading) { // Show a different loading message after login while core data loads
+      return (
+        <div className="w-full h-screen flex items-center justify-center bg-background-light dark:bg-background-dark text-foreground-light dark:text-foreground-dark">
+            <div className="text-xl font-semibold">Carregando dados da plataforma...</div>
+        </div>
+    );
+  }
+
 
   return (
     <div className="flex h-screen bg-background-light dark:bg-background-dark text-foreground-light dark:text-foreground-dark font-sans">

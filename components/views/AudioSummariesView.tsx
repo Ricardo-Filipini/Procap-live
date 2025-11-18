@@ -1,6 +1,4 @@
-
-
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { MainContentProps } from '../../types';
 import { AudioSummary, Comment, ContentType, Source } from '../../types';
 import { Modal } from '../Modal';
@@ -10,7 +8,7 @@ import { FontSizeControl, FONT_SIZE_CLASSES } from '../shared/FontSizeControl';
 import { ContentActions } from '../shared/ContentActions';
 import { useContentViewController } from '../../hooks/useContentViewController';
 import { handleInteractionUpdate, handleVoteUpdate } from '../../lib/content';
-import { updateContentComments, addSource, updateSource, supabase, addAudioSummary, getAudioSummaries, getSourcesBase } from '../../services/supabaseClient';
+import { updateContentComments, addSource, updateSource, supabase, addAudioSummary, getAudioSummaries } from '../../services/supabaseClient';
 import { PlusIcon } from '../Icons';
 
 const AddMediaModal: React.FC<{
@@ -111,10 +109,11 @@ const AddMediaModal: React.FC<{
 
 
 interface AudioSummariesViewProps extends MainContentProps {
+    allItems: (AudioSummary & { user_id: string, created_at: string, source: any})[];
     clearNavTarget: () => void;
 }
 
-export const AudioSummariesView: React.FC<AudioSummariesViewProps> = ({ appData, setAppData, currentUser, updateUser, navTarget, clearNavTarget }) => {
+export const AudioSummariesView: React.FC<AudioSummariesViewProps> = ({ allItems, appData, setAppData, currentUser, updateUser, navTarget, clearNavTarget }) => {
     const [isLoadingContent, setIsLoadingContent] = useState(false);
     const [commentingOn, setCommentingOn] = useState<(AudioSummary & { user_id: string, created_at: string}) | null>(null);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -123,44 +122,22 @@ export const AudioSummariesView: React.FC<AudioSummariesViewProps> = ({ appData,
     const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
     const [navigationState, setNavigationState] = useState<{ targetId: string; groupKey: string } | null>(null);
 
-    const allItems = useMemo(() => appData.sources.flatMap(s => (s.audio_summaries || []).map(as => ({ ...as, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
-
     useEffect(() => {
-        const hasData = appData.sources.some(s => s.audio_summaries?.length > 0);
-
-        if (!hasData) {
+        const areContentLoaded = allItems.length > 0;
+        if (!areContentLoaded && appData.sources.length > 0) {
             setIsLoadingContent(true);
-            Promise.all([
-                getSourcesBase(),
-                getAudioSummaries()
-            ]).then(([sources, audioSummaries]) => {
+            getAudioSummaries().then(allAudioSummaries => {
                 setAppData(prev => {
-                    const contentBySource = new Map<string, AudioSummary[]>();
-                    audioSummaries.forEach((item: AudioSummary) => {
-                        const list = contentBySource.get(item.source_id) || [];
-                        list.push(item);
-                        contentBySource.set(item.source_id, list);
-                    });
-
-                    const newSources = [...prev.sources];
-                    const sourceMap = new Map(newSources.map(s => [s.id, s]));
-
-                    sources.forEach(source => {
-                       if (!sourceMap.has(source.id)) {
-                           sourceMap.set(source.id, source);
-                       }
-                    });
-                    
-                    sourceMap.forEach(source => {
-                       source.audio_summaries = contentBySource.get(source.id) || source.audio_summaries || [];
-                    });
-
-                    return { ...prev, sources: Array.from(sourceMap.values()) };
+                    const sourcesWithContent = prev.sources.map(source => ({
+                        ...source,
+                        audio_summaries: allAudioSummaries.filter(as => as.source_id === source.id)
+                    }));
+                    return { ...prev, sources: sourcesWithContent };
                 });
-            }).catch(e => console.error(`Failed to load audio summaries`, e))
-              .finally(() => setIsLoadingContent(false));
+                setIsLoadingContent(false);
+            });
         }
-    }, [appData.sources, setAppData]);
+    }, [appData.sources, setAppData, allItems]);
     
     const {
         sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly,
@@ -242,7 +219,7 @@ export const AudioSummariesView: React.FC<AudioSummariesViewProps> = ({ appData,
         const success = await updateContentComments('audio_summaries', commentingOn.id, updatedComments);
         if (success) {
             const updatedItem = {...commentingOn, comments: updatedComments };
-            setAppData(prev => ({ ...prev, sources: prev.sources.map((s: Source) => s.id === updatedItem.source_id ? { ...s, audio_summaries: s.audio_summaries.map(as => as.id === updatedItem.id ? updatedItem : as) } : s) }));
+            setAppData(prev => ({ ...prev, sources: prev.sources.map(s => s.id === updatedItem.source_id ? { ...s, audio_summaries: s.audio_summaries.map(as => as.id === updatedItem.id ? updatedItem : as) } : s) }));
             setCommentingOn(updatedItem);
         }
     };

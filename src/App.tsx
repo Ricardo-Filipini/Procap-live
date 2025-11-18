@@ -1,9 +1,5 @@
 
 
-
-
-
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { MainContent } from './components/MainContent';
@@ -49,22 +45,21 @@ const App: React.FC = () => {
       localStorage.setItem('procap_agent_settings', JSON.stringify(agentSettings));
   }, [agentSettings]);
 
-  // Load only essential user data on initial load
+  // Load all data from Supabase on initial load
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true);
       setError(null);
       try {
-        // FIX: Correctly handle the response object from getInitialData.
-        const response = await getInitialData();
-        if (response.error) {
-            throw new Error(response.error);
+        const data = await getInitialData();
+        if (data.error) {
+            throw new Error(data.error);
         }
-        setAppData(response.data);
+        setAppData(data.data);
         // Restore user session if available from localStorage
         const savedUserId = localStorage.getItem('procap_lastUserId');
         if (savedUserId) {
-          const userToLogin = response.data.users.find(u => u.id === savedUserId);
+          const userToLogin = data.data.users.find(u => u.id === savedUserId);
           if (userToLogin) {
             setCurrentUser(userToLogin);
           } else {
@@ -72,9 +67,9 @@ const App: React.FC = () => {
             localStorage.removeItem('procap_lastUserId');
           }
         }
-      } catch (e: any) {
-        console.error("Error fetching initial data from Supabase", e);
-        setError("Não foi possível carregar os dados iniciais da plataforma. Verifique sua conexão e recarregue a página.");
+      } catch (error: any) {
+        console.error("Error fetching initial data from Supabase", error);
+        setError("Falha na conexão com o banco de dados. Por favor, recarregue a página e verifique sua conexão com a internet.");
       } finally {
         setIsLoading(false);
       }
@@ -208,7 +203,7 @@ const App: React.FC = () => {
   if (isLoading) {
     return (
         <div className="w-full h-screen flex items-center justify-center bg-background-light dark:bg-background-dark text-foreground-light dark:text-foreground-dark">
-            <div className="text-xl font-semibold">Carregando plataforma...</div>
+            <div className="text-xl font-semibold">Carregando dados...</div>
         </div>
     );
   }

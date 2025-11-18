@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { MainContentProps } from '../../types';
-import { Flashcard, Comment, ContentType, Source } from '../../types';
+import { Flashcard, Comment, ContentType } from '../../types';
 import { CommentsModal } from '../shared/CommentsModal';
 import { GenerateContentModal } from '../shared/GenerateContentModal';
 import { ContentToolbar } from '../shared/ContentToolbar';
@@ -8,15 +8,15 @@ import { FontSizeControl, FONT_SIZE_CLASSES } from '../shared/FontSizeControl';
 import { ContentActions } from '../shared/ContentActions';
 import { useContentViewController } from '../../hooks/useContentViewController';
 import { handleInteractionUpdate, handleVoteUpdate, handleGenerateNewContent } from '../../lib/content';
-import { updateContentComments, getFlashcards, getSourcesBase } from '../../services/supabaseClient';
+import { updateContentComments } from '../../services/supabaseClient';
 import { XMarkIcon } from '../Icons';
 
 interface FlashcardsViewProps extends MainContentProps {
+    allItems: (Flashcard & { user_id: string, created_at: string, source: any})[];
     clearNavTarget: () => void;
 }
 
-export const FlashcardsView: React.FC<FlashcardsViewProps> = ({ appData, setAppData, currentUser, updateUser, navTarget, clearNavTarget }) => {
-    const [isLoadingContent, setIsLoadingContent] = useState(false);
+export const FlashcardsView: React.FC<FlashcardsViewProps> = ({ allItems, appData, setAppData, currentUser, updateUser, navTarget, clearNavTarget }) => {
     const [flipped, setFlipped] = useState<string | null>(null);
     const [commentingOn, setCommentingOn] = useState<Flashcard | null>(null);
     const [fontSize, setFontSize] = useState(1);
@@ -24,46 +24,6 @@ export const FlashcardsView: React.FC<FlashcardsViewProps> = ({ appData, setAppD
     const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
     const [navigationState, setNavigationState] = useState<{ targetId: string; groupKey: string } | null>(null);
     const [sourceFilter, setSourceFilter] = useState<string | null>(null);
-    
-    // FIX: Moved allItems calculation inside the component to remove it from props and fix parent component error.
-    const allItems = useMemo(() => appData.sources.flatMap(s => (s.flashcards || []).map(fc => ({ ...fc, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
-
-    useEffect(() => {
-        const hasData = appData.sources.some(s => s.flashcards?.length > 0);
-
-        if (!hasData) {
-            setIsLoadingContent(true);
-            Promise.all([
-                getSourcesBase(),
-                getFlashcards()
-            ]).then(([sources, flashcards]) => {
-                setAppData(prev => {
-                    const contentBySource = new Map<string, Flashcard[]>();
-                    flashcards.forEach((item: Flashcard) => {
-                        const list = contentBySource.get(item.source_id) || [];
-                        list.push(item);
-                        contentBySource.set(item.source_id, list);
-                    });
-
-                    const newSources = [...prev.sources];
-                    const sourceMap = new Map(newSources.map(s => [s.id, s]));
-
-                    sources.forEach(source => {
-                       if (!sourceMap.has(source.id)) {
-                           sourceMap.set(source.id, source);
-                       }
-                    });
-                    
-                    sourceMap.forEach(source => {
-                       source.flashcards = contentBySource.get(source.id) || source.flashcards || [];
-                    });
-
-                    return { ...prev, sources: Array.from(sourceMap.values()) };
-                });
-            }).catch(e => console.error(`Failed to load flashcards`, e))
-              .finally(() => setIsLoadingContent(false));
-        }
-    }, [appData.sources, setAppData]);
 
     useEffect(() => {
         if (navTarget?.term) {
@@ -158,7 +118,7 @@ export const FlashcardsView: React.FC<FlashcardsViewProps> = ({ appData, setAppD
         const success = await updateContentComments('flashcards', commentingOn.id, updatedComments);
         if (success) {
             const updatedItem = {...commentingOn, comments: updatedComments };
-            setAppData(prev => ({ ...prev, sources: prev.sources.map((s: Source) => s.id === updatedItem.source_id ? { ...s, flashcards: s.flashcards.map(fc => fc.id === updatedItem.id ? updatedItem : fc) } : s) }));
+            setAppData(prev => ({ ...prev, sources: prev.sources.map(s => s.id === updatedItem.source_id ? { ...s, flashcards: s.flashcards.map(fc => fc.id === updatedItem.id ? updatedItem : fc) } : s) }));
             setCommentingOn(updatedItem);
         }
     };
@@ -227,24 +187,22 @@ export const FlashcardsView: React.FC<FlashcardsViewProps> = ({ appData, setAppD
             )}
             
             <FontSizeControl fontSize={fontSize} setFontSize={setFontSize} className="mb-4" />
-            {isLoadingContent ? <div className="text-center p-8">Carregando flashcards...</div> : (
-                <div className="space-y-6">
-                    {Array.isArray(itemsToRender) 
-                        ? renderItems(itemsToRender)
-                        : Object.entries(itemsToRender as Record<string, any[]>).map(([groupKey, items]: [string, any[]]) => {
-                            const isHighlighted = groupKey.startsWith('(Apostila)');
-                            return (
-                                <details key={groupKey} open={openGroups.has(groupKey)} className={`bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark transition-all ${isHighlighted ? 'border-primary-light dark:border-primary-dark border-2 shadow-lg' : ''}`}>
-                                     <summary onClick={(e) => { e.preventDefault(); handleToggleGroup(groupKey); }} className={`text-xl font-bold cursor-pointer ${isHighlighted ? 'text-primary-light dark:text-primary-dark' : ''}`}>{sort === 'user' ? (appData.users.find(u => u.id === groupKey)?.pseudonym || 'Desconhecido') : groupKey}</summary>
-                                    <div className="mt-4 pt-4 border-t border-border-light dark:border-border-dark space-y-4">
+            <div className="space-y-6">
+                {Array.isArray(itemsToRender) 
+                    ? renderItems(itemsToRender)
+                    : Object.entries(itemsToRender as Record<string, any[]>).map(([groupKey, items]: [string, any[]]) => {
+                        const isHighlighted = groupKey.startsWith('(Apostila)');
+                        return (
+                            <details key={groupKey} open={openGroups.has(groupKey)} className={`bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-sm border border-border-light dark:border-border-dark transition-all ${isHighlighted ? 'border-primary-light dark:border-primary-dark border-2 shadow-lg' : ''}`}>
+                                 <summary onClick={(e) => { e.preventDefault(); handleToggleGroup(groupKey); }} className={`text-xl font-bold cursor-pointer ${isHighlighted ? 'text-primary-light dark:text-primary-dark' : ''}`}>{sort === 'user' ? (appData.users.find(u => u.id === groupKey)?.pseudonym || 'Desconhecido') : groupKey}</summary>
+                                <div className="mt-4 pt-4 border-t border-border-light dark:border-border-dark space-y-4">
                                    {renderItems(items)}
-                                    </div>
-                                </details>
-                            )
-                        })
-                    }
-                </div>
-            )}
+                                </div>
+                            </details>
+                        )
+                    })
+                }
+            </div>
         </>
     );
 };

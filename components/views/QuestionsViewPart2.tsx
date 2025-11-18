@@ -3,13 +3,13 @@ import { MainContentProps } from '../../types';
 import { Question, Comment, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer, Source } from '../../types';
 import { CommentsModal } from '../shared/CommentsModal';
 import { Modal } from '../Modal';
-import { PlusIcon, LightBulbIcon, ChartBarSquareIcon, MagnifyingGlassIcon, TrashIcon, XCircleIcon, SparklesIcon } from '../Icons';
+import { PlusIcon, LightBulbIcon, ChartBarSquareIcon, MagnifyingGlassIcon, TrashIcon, XCircleIcon, SparklesIcon, ShuffleIcon } from '../Icons';
 import { ContentActions } from '../shared/ContentActions';
 import { FontSizeControl, FONT_SIZE_CLASSES } from '../shared/FontSizeControl';
 import { checkAndAwardAchievements } from '../../lib/achievements';
 import { handleInteractionUpdate, handleVoteUpdate } from '../../lib/content';
 import { filterItemsByPrompt, generateNotebookName } from '../../services/geminiService';
-import { addQuestionNotebook, upsertUserVote, updateContentComments, updateUser as supabaseUpdateUser, upsertUserQuestionAnswer, clearNotebookAnswers, supabase, logXpEvent, getQuestionStats, getNotebookLeaderboards } from '../../services/supabaseClient';
+import { addQuestionNotebook, upsertUserVote, updateContentComments, updateUser as supabaseUpdateUser, upsertUserQuestionAnswer, clearNotebookAnswers, supabase, logXpEvent, getNotebookLeaderboard, getQuestionStatsWithDistribution } from '../../services/supabaseClient';
 
 const CreateNotebookModal: React.FC<{
     isOpen: boolean;
@@ -209,32 +209,51 @@ const QuestionStatsModal: React.FC<{
     isOpen: boolean;
     onClose: () => void;
     question: Question;
-    globalStats: any[] | null;
-}> = ({ isOpen, onClose, question, globalStats }) => {
-    const stats = useMemo(() => {
-        if (!question || !globalStats) return null;
+}> = ({ isOpen, onClose, question }) => {
+    const [stats, setStats] = useState<{ total: number; correct: number; distribution: { option: string; count: number; percentage: number }[] } | null>(null);
+    const [isLoading, setIsLoading] = useState(false);
 
-        const questionStat = globalStats.find(s => s.question_id === question.id);
+    useEffect(() => {
+        if (isOpen && question) {
+            setIsLoading(true);
+            setStats(null);
+            getQuestionStatsWithDistribution(question.id).then(({ data, error }) => {
+                if (error || !data) {
+                    console.error(error);
+                } else {
+                    const totalAnswers = data.total_answers || 0;
+                    const incorrectAnswers = totalAnswers - (data.correct_answers || 0);
 
-        if (!questionStat) {
-             return { total: 0, correct: 0, incorrect: 0, distribution: [] };
+                    const distributionArray = question.options.map(option => {
+                        const count = data.distribution?.[option] || 0;
+                        return {
+                            option,
+                            count,
+                            percentage: totalAnswers > 0 ? (count / totalAnswers) * 100 : 0,
+                        };
+                    });
+
+                    setStats({
+                        total: totalAnswers,
+                        correct: data.correct_answers || 0,
+                        distribution: distributionArray.sort((a,b) => b.count - a.count),
+                    });
+                }
+                setIsLoading(false);
+            });
         }
+    }, [isOpen, question]);
 
-        return {
-            total: questionStat.total_answers,
-            correct: questionStat.correct_answers,
-            incorrect: questionStat.total_answers - questionStat.correct_answers,
-            // Distribution is not available from the RPC, this is a simplification
-            distribution: []
-        };
-    }, [question, globalStats]);
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={`Estatísticas Globais da Questão`}>
-             {stats ? (
-            <div className="space-y-4">
+        <Modal isOpen={isOpen} onClose={onClose} title={`Estatísticas da Questão`}>
+             <div className="space-y-4">
                 <p className="text-sm font-semibold truncate">{question.questionText}</p>
-                 {stats.total > 0 ? (
+                 {isLoading ? (
+                    <div className="text-center p-8">Carregando estatísticas...</div>
+                 ) : !stats || stats.total === 0 ? (
+                    <p className="text-center text-gray-500 py-4">Nenhum usuário respondeu a esta questão ainda.</p>
+                 ) : (
                     <>
                         <div className="grid grid-cols-3 gap-4 text-center">
                             <div className="bg-background-light dark:bg-background-dark p-3 rounded-lg">
@@ -247,18 +266,28 @@ const QuestionStatsModal: React.FC<{
                             </div>
                              <div className="bg-red-100 dark:bg-red-900/50 p-3 rounded-lg">
                                 <p className="font-semibold text-red-700 dark:text-red-300">Erros</p>
-                                <p className="text-2xl font-bold text-red-600 dark:text-red-400">{stats.incorrect}</p>
+                                <p className="text-2xl font-bold text-red-600 dark:text-red-400">{stats.total - stats.correct}</p>
                             </div>
                         </div>
-                        <p className="text-xs text-center text-gray-500">(Estatísticas de todos os usuários na primeira tentativa)</p>
+                        <div>
+                            <h4 className="font-semibold mb-2">Distribuição das Respostas (1ª Tentativa)</h4>
+                            <div className="space-y-2">
+                                {stats.distribution.map(({ option, count, percentage }) => (
+                                    <div key={option}>
+                                        <div className="flex justify-between items-center text-sm mb-1">
+                                            <span className={`truncate ${option === question.correctAnswer ? 'font-bold' : ''}`} title={option}>{option}</span>
+                                            <span>{count} ({percentage.toFixed(0)}%)</span>
+                                        </div>
+                                        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
+                                            <div className={`h-2.5 rounded-full ${option === question.correctAnswer ? 'bg-green-500' : 'bg-primary-light'}`} style={{ width: `${percentage}%` }}></div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
                     </>
-                ) : (
-                    <p className="text-center text-gray-500 py-4">Nenhum usuário respondeu a esta questão ainda.</p>
                 )}
             </div>
-             ) : (
-                <div className="text-center p-8">Carregando estatísticas globais...</div>
-            )}
         </Modal>
     );
 };
@@ -377,12 +406,31 @@ const NotebookStatsModal: React.FC<{
     currentUser: MainContentProps['currentUser'];
     onClearAnswers: (questionIdsToClear: string[]) => void;
     onStartClearing: () => void;
-    notebookLeaderboards: any | null;
-    isLoadingGlobalStats: boolean;
-}> = ({ isOpen, onClose, notebook, appData, allQuestions, currentUser, onStartClearing, notebookLeaderboards, isLoadingGlobalStats }) => {
+}> = ({ isOpen, onClose, notebook, appData, allQuestions, currentUser, onClearAnswers, onStartClearing }) => {
     const notebookId = notebook === 'all' ? 'all_questions' : notebook.id;
     const notebookName = notebook === 'all' ? "Todas as Questões" : notebook.name;
     
+    const [leaderboardData, setLeaderboardData] = useState<{ pseudonym: string; score: number; userId: string }[]>([]);
+    const [isLoadingLeaderboard, setIsLoadingLeaderboard] = useState(false);
+
+    useEffect(() => {
+        if (isOpen) {
+            setIsLoadingLeaderboard(true);
+            getNotebookLeaderboard(notebookId).then(({ data, error }) => {
+                if (data) {
+                    setLeaderboardData(data.map(d => ({
+                        pseudonym: d.pseudonym,
+                        score: d.correct_answers,
+                        userId: d.user_id,
+                    })));
+                } else if (error) {
+                    console.error("Failed to load leaderboard:", error);
+                }
+                setIsLoadingLeaderboard(false);
+            });
+        }
+    }, [isOpen, notebookId]);
+
     const questionIds = useMemo(() => {
         if (notebook === 'all') {
             return new Set(appData.sources.flatMap(s => s.questions.map(q => q.id)));
@@ -396,22 +444,6 @@ const NotebookStatsModal: React.FC<{
             ans => ans.user_id === currentUser.id && ans.notebook_id === notebookId
         );
     }, [appData.userQuestionAnswers, currentUser.id, notebookId]);
-
-    const leaderboardData = useMemo(() => {
-        if (!notebookLeaderboards) return [];
-        
-        const leaderboard = notebookLeaderboards[notebookId];
-        if (!leaderboard) return [];
-
-        return leaderboard.map((entry: {user_id: string, score: number}) => {
-                const user = appData.users.find(u => u.id === entry.user_id);
-                return {
-                    userId: entry.user_id,
-                    pseudonym: user?.pseudonym || 'Desconhecido',
-                    score: entry.score,
-                };
-            })
-    }, [notebookLeaderboards, appData.users, notebookId]);
 
     const totalQuestions = questionIds.size;
     const questionsAnswered = relevantAnswers.length;
@@ -446,13 +478,14 @@ const NotebookStatsModal: React.FC<{
                 <div className="pt-4 border-t border-border-light dark:border-border-dark">
                     <h3 className="text-lg font-semibold mb-2">Leaderboard do Caderno</h3>
                     <div className="max-h-40 overflow-y-auto space-y-2">
-                         {isLoadingGlobalStats ? <p className="text-sm text-center text-gray-500">Carregando placar...</p> :
-                         (leaderboardData && leaderboardData.length > 0 ? leaderboardData.map((entry: any, index: number) => (
+                        {isLoadingLeaderboard ? (
+                            <p className="text-sm text-gray-500">Carregando leaderboard...</p>
+                        ) : leaderboardData.length > 0 ? leaderboardData.map((entry, index) => (
                             <div key={entry.userId} className={`flex items-center justify-between p-2 rounded-md ${entry.userId === currentUser.id ? 'bg-primary-light/10' : 'bg-background-light dark:bg-background-dark'}`}>
                                 <p><span className="font-bold w-6 inline-block">{index + 1}.</span> {entry.pseudonym}</p>
                                 <p className="font-bold">{entry.score} acertos</p>
                             </div>
-                        )) : <p className="text-sm text-gray-500">Ninguém pontuou neste caderno ainda.</p>)}
+                        )) : <p className="text-sm text-gray-500">Ninguém respondeu a este caderno ainda.</p>}
                     </div>
                 </div>
 
@@ -482,14 +515,47 @@ export const NotebookGridView: React.FC<{
     setCommentingOnNotebook: (notebook: QuestionNotebook) => void;
 }> = ({ notebooks, appData, setAppData, currentUser, updateUser, onSelectNotebook, handleNotebookInteractionUpdate, handleNotebookVote, setCommentingOnNotebook }) => {
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-    
-    const allQuestions = useMemo(() => appData.sources.flatMap(s => s.questions || []), [appData.sources]);
+    const [resolvedCounts, setResolvedCounts] = useState<Map<string, number>>(new Map());
+
+    useEffect(() => {
+        if (!supabase) return;
+        supabase.rpc('get_user_notebook_progress', { p_user_id: currentUser.id })
+            .then(({ data, error }) => {
+                if (error) {
+                    console.error("Error fetching notebook progress:", error);
+                    return;
+                }
+                if (data) {
+                    const counts = new Map<string, number>();
+                    data.forEach((item: any) => {
+                        if (item.notebook_id) {
+                            counts.set(item.notebook_id, item.answered_count);
+                        }
+                    });
+
+                    // Manually calculate for special notebooks as they don't exist in the RPC result
+                    const answeredInFavorites = appData.userQuestionAnswers
+                        .filter(ans => ans.user_id === currentUser.id && ans.notebook_id === 'favorites_notebook')
+                        .length;
+                    counts.set('favorites_notebook', answeredInFavorites);
+
+                    const answeredInAll = appData.userQuestionAnswers
+                        .filter(ans => ans.user_id === currentUser.id && ans.notebook_id === 'all_questions')
+                        .length;
+                    counts.set('all_questions', answeredInAll);
+                    
+                    setResolvedCounts(counts);
+                }
+            });
+    }, [currentUser.id, appData.userQuestionAnswers]); // Re-run when local answers change to keep special notebooks updated
 
     const favoritedQuestionIds = useMemo(() => {
         return appData.userContentInteractions
             .filter(i => i.user_id === currentUser.id && i.content_type === 'question' && i.is_favorite)
             .map(i => i.content_id);
     }, [appData.userContentInteractions, currentUser.id]);
+    
+    const allQuestions = appData.sources.flatMap(s => s.questions);
 
     const renderNotebook = (notebook: QuestionNotebook | 'all' | 'new' | 'favorites') => {
         if (notebook === 'new') {
@@ -510,20 +576,14 @@ export const NotebookGridView: React.FC<{
             id = 'all_notebooks';
             name = "Todas as Questões";
             questionCount = allQuestions.length;
-            
-            const answeredInAllNotebookContext = new Set(appData.userQuestionAnswers
-                .filter(a => a.user_id === currentUser.id && a.notebook_id === 'all_questions')
-                .map(a => a.question_id));
-                
-            resolvedCount = allQuestions.filter(q => answeredInAllNotebookContext.has(q.id)).length;
+            resolvedCount = resolvedCounts.get('all_questions') || 0;
             onSelect = () => onSelectNotebook('all');
         } else if (notebook === 'favorites') {
              if (favoritedQuestionIds.length === 0) return null;
              id = 'favorites_notebook';
              name = "⭐ Questões Favoritas";
              questionCount = favoritedQuestionIds.length;
-             const answeredInFavorites = new Set(appData.userQuestionAnswers.filter(a => a.user_id === currentUser.id && a.notebook_id === 'favorites_notebook').map(a => a.question_id));
-             resolvedCount = favoritedQuestionIds.filter(qId => answeredInFavorites.has(qId)).length;
+             resolvedCount = resolvedCounts.get('favorites_notebook') || 0;
              onSelect = () => {
                  const favoriteNotebook: QuestionNotebook = {
                     id: 'favorites_notebook', user_id: currentUser.id, name: '⭐ Questões Favoritas', question_ids: favoritedQuestionIds,
@@ -534,16 +594,8 @@ export const NotebookGridView: React.FC<{
         } else {
             id = notebook.id;
             name = notebook.name;
-// FIX: Defensively filter question_ids to ensure it's an array of strings before creating a Set, preventing a 'Set<unknown>' type error.
-            const notebookQuestionIds = new Set((notebook.question_ids || []).filter((id): id is string => typeof id === 'string'));
-            questionCount = notebookQuestionIds.size;
-            
-            const answeredInThisNotebook = new Set(appData.userQuestionAnswers
-                .filter(a => a.user_id === currentUser.id && a.notebook_id === notebook.id)
-                .map(a => a.question_id));
-
-            resolvedCount = answeredInThisNotebook.size;
-            
+            questionCount = notebook.question_ids.length;
+            resolvedCount = resolvedCounts.get(notebook.id) || 0;
             item = notebook;
             contentType = 'question_notebook';
             interactions = appData.userNotebookInteractions.filter(i => i.user_id === currentUser.id);
@@ -608,9 +660,8 @@ export const NotebookDetailView: React.FC<{
     updateUser: MainContentProps['updateUser'];
     onBack: () => void;
     questionIdToFocus?: string | null;
-    onFocusConsumed: () => void;
     setScreenContext?: (context: string | null) => void;
-}> = ({ notebook, allQuestions, appData, setAppData, currentUser, updateUser, onBack, questionIdToFocus, onFocusConsumed, setScreenContext }) => {
+}> = ({ notebook, allQuestions, appData, setAppData, currentUser, updateUser, onBack, questionIdToFocus, setScreenContext }) => {
     
     const [userAnswers, setUserAnswers] = useState<Map<string, UserQuestionAnswer>>(new Map());
     const notebookId = notebook === 'all' ? 'all_questions' : notebook.id;
@@ -638,59 +689,37 @@ export const NotebookDetailView: React.FC<{
     const wasSwipe = useRef(false);
     const touchStartX = useRef<number | null>(null);
     const touchStartY = useRef<number | null>(null);
+    const [shuffledOptions, setShuffledOptions] = useState<string[] | null>(null);
     
-    const [questionSortOrder, setQuestionSortOrder] = useState<'default' | 'temp' | 'date' | 'random'>('default');
+    const [questionSortOrder, setQuestionSortOrder] = useState<'temp' | 'date' | 'random'>('temp');
     const [shuffleTrigger, setShuffleTrigger] = useState(0);
     const [prioritizeApostilas, setPrioritizeApostilas] = useState(notebook === 'all');
     const [showWrongOnly, setShowWrongOnly] = useState(false);
     const [showUnansweredInAnyNotebook, setShowUnansweredInAnyNotebook] = useState(false);
     const [difficultyFilter, setDifficultyFilter] = useState<'all' | 'Fácil' | 'Médio' | 'Difícil'>('all');
     const [sourceFilter, setSourceFilter] = useState<string>('all');
-    const [shuffleOptions, setShuffleOptions] = useState(true);
-    const [displayedOptions, setDisplayedOptions] = useState<string[]>([]);
-
-    const navigationActionRef = useRef<'sort' | 'filter' | null>(null);
-    const preservedIndexRef = useRef<number | null>(null);
-    const displayedQuestionRef = useRef<Question | null>(null);
-
-    const focusConsumedRef = useRef(false);
     
-    const [globalStats, setGlobalStats] = useState<{ questionStats: any[] | null, notebookLeaderboards: any | null }>({ questionStats: null, notebookLeaderboards: null });
-    const [isLoadingGlobalStats, setIsLoadingGlobalStats] = useState(true);
-
-    const [stableSortedQuestions, setStableSortedQuestions] = useState<(Question & { user_id: string, created_at: string, source: any})[]>([]);
-    const [shuffledOptionsMap, setShuffledOptionsMap] = useState(new Map<string, string[]>());
-    const [shouldUpdateSnapshot, setShouldUpdateSnapshot] = useState(true);
-
+    const [questionErrorRates, setQuestionErrorRates] = useState<Map<string, number>>(new Map());
 
     useEffect(() => {
-        setIsLoadingGlobalStats(true);
-        Promise.all([
-            getQuestionStats(),
-            getNotebookLeaderboards(),
-        ]).then(([statsRes, leaderboardsRes]) => {
-            setGlobalStats({
-                questionStats: statsRes.data,
-                notebookLeaderboards: leaderboardsRes.data,
-            });
-            if (statsRes.error) console.error("Failed to fetch global question stats:", statsRes.error);
-            if (leaderboardsRes.error) console.error("Failed to fetch notebook leaderboards:", leaderboardsRes.error);
-        }).finally(() => {
-            setIsLoadingGlobalStats(false);
+        if (!supabase) return;
+        supabase.rpc('get_question_stats').then(({ data, error }) => {
+            if (error) {
+                console.error("Error fetching question stats:", error);
+                return;
+            };
+            if (data) {
+                const rates = new Map<string, number>();
+                data.forEach((stat: any) => {
+                    if (stat.total_answers > 0) {
+                        // error rate = 1 - success rate
+                        rates.set(stat.question_id, 1 - (stat.correct_answers / stat.total_answers));
+                    }
+                });
+                setQuestionErrorRates(rates);
+            }
         });
-    }, []);
-
-    useEffect(() => {
-        // Reset the consumed flag if the focus target changes (e.g., navigating from another view)
-        focusConsumedRef.current = false;
-    }, [questionIdToFocus]);
-    
-    const consumeFocus = () => {
-        if (questionIdToFocus && !focusConsumedRef.current) {
-            onFocusConsumed();
-            focusConsumedRef.current = true;
-        }
-    };
+    }, []); // Run only once on mount
 
     const questionsInNotebook = useMemo(() => {
         if (notebook === 'all') return allQuestions;
@@ -711,35 +740,23 @@ export const NotebookDetailView: React.FC<{
     }, [notebook, allQuestions]);
 
 
-    const questionErrorRates = useMemo(() => {
-        const rates = new Map<string, number>();
-        if (globalStats.questionStats) {
-            globalStats.questionStats.forEach(stat => {
-                if (stat.total_answers > 2) { // Only consider questions with a few answers
-                    const errorRate = 1 - (stat.correct_answers / stat.total_answers);
-                    rates.set(stat.question_id, errorRate);
-                } else {
-                    rates.set(stat.question_id, 0.5); // Default for low-data questions
-                }
-            });
-        }
-        return rates;
-    }, [globalStats.questionStats]);
-    
     const difficultyThresholds = useMemo(() => {
-        if (!globalStats.questionStats) return { easy: 0.33, medium: 0.66 };
-        
         const ratesInNotebook = questionsInNotebook
             .map(q => questionErrorRates.get(q.id) ?? 0.5) 
             .sort((a, b) => a - b);
         
-        if (ratesInNotebook.length < 3) return { easy: 0.33, medium: 0.66 };
+        if (ratesInNotebook.length < 3) {
+            return { easy: 0.33, medium: 0.66 };
+        }
         
         const easyPercentile = ratesInNotebook[Math.floor(ratesInNotebook.length * 0.33)];
         const mediumPercentile = ratesInNotebook[Math.floor(ratesInNotebook.length * 0.66)];
         
-        return { easy: easyPercentile, medium: mediumPercentile };
-    }, [questionsInNotebook, questionErrorRates, globalStats.questionStats]);
+        return {
+            easy: easyPercentile,
+            medium: mediumPercentile
+        };
+    }, [questionsInNotebook, questionErrorRates]);
 
 
     const stableRandomSort = useMemo(() => {
@@ -748,7 +765,7 @@ export const NotebookDetailView: React.FC<{
         return (a: Question, b: Question) => (randomValues.get(a.id) ?? 0) - (randomValues.get(b.id) ?? 0);
     }, [questionsInNotebook, shuffleTrigger]);
     
-    const liveSortedQuestions = useMemo(() => {
+    const sortedQuestions = useMemo(() => {
         let questionsToProcess = [...questionsInNotebook];
 
         if (notebook === 'all' && sourceFilter !== 'all') {
@@ -758,7 +775,7 @@ export const NotebookDetailView: React.FC<{
         if (showWrongOnly) {
             const answeredIncorrectlyIds = new Set(
                 appData.userQuestionAnswers
-                    .filter(ans => ans.user_id === currentUser.id && !ans.is_correct_first_try)
+                    .filter(ans => ans.user_id === currentUser.id && ans.notebook_id === notebookId && !ans.is_correct_first_try)
                     .map(ans => ans.question_id)
             );
             questionsToProcess = questionsToProcess.filter(q => answeredIncorrectlyIds.has(q.id));
@@ -783,7 +800,7 @@ export const NotebookDetailView: React.FC<{
                 case 'temp': groupToSort.sort((a, b) => (b.hot_votes - b.cold_votes) - (a.hot_votes - a.cold_votes)); break;
                 case 'date': groupToSort.sort((a, b) => new Date(b.source?.created_at || 0).getTime() - new Date(a.source?.created_at || 0).getTime()); break;
                 case 'random': groupToSort.sort(stableRandomSort); break;
-                default: // 'default'
+                default:
                     if (notebook !== 'all') {
                         const questionIds: string[] = Array.isArray(notebook.question_ids) ? notebook.question_ids.filter((id): id is string => typeof id === 'string') : [];
                         const orderMap = new Map(questionIds.map((id, index) => [id, index]));
@@ -807,171 +824,154 @@ export const NotebookDetailView: React.FC<{
 
     }, [
         questionsInNotebook, questionSortOrder, prioritizeApostilas, notebook, 
-        stableRandomSort, showWrongOnly, appData.userQuestionAnswers, currentUser.id,
+        stableRandomSort, showWrongOnly, appData.userQuestionAnswers, currentUser.id, notebookId, 
         showUnansweredInAnyNotebook, difficultyFilter, questionErrorRates, difficultyThresholds, sourceFilter
     ]);
 
-    useEffect(() => {
-        if (shouldUpdateSnapshot) {
-            setStableSortedQuestions(liveSortedQuestions);
-
-            const newMap = new Map<string, string[]>();
-            if (shuffleOptions) {
-                questionsInNotebook.forEach(question => {
-                    const options = [...question.options];
-                    for (let i = options.length - 1; i > 0; i--) {
-                        const j = Math.floor(Math.random() * (i + 1));
-                        [options[i], options[j]] = [options[j], options[i]];
-                    }
-                    newMap.set(question.id, options);
-                });
-            }
-            setShuffledOptionsMap(newMap);
-
-            setShouldUpdateSnapshot(false);
-        }
-    }, [liveSortedQuestions, shouldUpdateSnapshot, shuffleOptions, questionsInNotebook, shuffleTrigger]);
-
-
     const currentQuestionIndex = useMemo(() => {
         if (!activeQuestionId) return -1;
-        return stableSortedQuestions.findIndex(q => q.id === activeQuestionId);
-    }, [activeQuestionId, stableSortedQuestions]);
+        return sortedQuestions.findIndex(q => q.id === activeQuestionId);
+    }, [activeQuestionId, sortedQuestions]);
+    
+    const preservedIndexRef = useRef<number | null>(null);
 
-    const currentQuestion = useMemo(() => {
-        if (currentQuestionIndex > -1) {
-            return stableSortedQuestions[currentQuestionIndex];
-        }
-        // Fallback to find from original list if it was filtered out after answering
-        return questionsInNotebook.find(q => q.id === activeQuestionId);
-    }, [currentQuestionIndex, stableSortedQuestions, questionsInNotebook, activeQuestionId]);
-
-     useEffect(() => {
-        if (currentQuestion) {
-            const shuffled = shuffledOptionsMap.get(currentQuestion.id);
-            if (shuffled) {
-                setDisplayedOptions(shuffled);
-            } else {
-                setDisplayedOptions(currentQuestion.options);
-            }
-        }
-    }, [currentQuestion, shuffledOptionsMap]);
-
-
-    if (currentQuestion) {
-        displayedQuestionRef.current = currentQuestion;
-    }
-    const questionToRender = isCompleted ? (displayedQuestionRef.current ?? currentQuestion) : currentQuestion;
-
-    // This effect is the new single source of truth for navigation.
+    // This effect ensures the active question is valid after a sort/filter change.
     useEffect(() => {
-        // 1. Prioritize explicit navigation from another view or session restoration
-        if (questionIdToFocus) {
-            const indexToFocus = stableSortedQuestions.findIndex(q => q.id === questionIdToFocus);
-            if (indexToFocus !== -1 && activeQuestionId !== questionIdToFocus) {
-                setActiveQuestionId(questionIdToFocus);
-            }
-            // This logic runs once per `questionIdToFocus` change and then stops.
-            return;
-        }
-
-        // 2. Handle navigation from user-initiated sort or filter
-        if (navigationActionRef.current) {
-            const action = navigationActionRef.current;
-            const desiredIndex = action === 'sort' ? (preservedIndexRef.current ?? 0) : 0;
-            const newIndex = Math.max(0, Math.min(desiredIndex, stableSortedQuestions.length - 1));
-            
-            const newQuestion = stableSortedQuestions[newIndex] || stableSortedQuestions[0] || null;
-
-            if (newQuestion && newQuestion.id !== activeQuestionId) {
+        if (typeof preservedIndexRef.current === 'number') {
+            const newIndex = Math.max(0, Math.min(preservedIndexRef.current, sortedQuestions.length - 1));
+            const newQuestion = sortedQuestions[newIndex] || sortedQuestions[0] || null;
+            if (newQuestion) {
                 setActiveQuestionId(newQuestion.id);
-            } else if (!newQuestion && activeQuestionId !== null) {
+            } else {
                 setActiveQuestionId(null);
             }
-            
-            navigationActionRef.current = null;
-            preservedIndexRef.current = null;
-            return; 
+        } else if (!activeQuestionId && sortedQuestions.length > 0) {
+             setActiveQuestionId(sortedQuestions[0].id);
         }
+        preservedIndexRef.current = null;
+    }, [sortedQuestions]);
 
-        // 3. Fallback for initialization
-        if (stableSortedQuestions.length > 0 && !activeQuestionId) {
-            setActiveQuestionId(stableSortedQuestions[0].id);
-        }
-        
-    }, [stableSortedQuestions, activeQuestionId, questionIdToFocus]);
-    
-    const triggerSnapshotRefresh = () => setShouldUpdateSnapshot(true);
-    
     const handleSortChange = (newSort: typeof questionSortOrder) => {
-        consumeFocus();
-        navigationActionRef.current = 'sort';
         preservedIndexRef.current = currentQuestionIndex > -1 ? currentQuestionIndex : 0;
-        triggerSnapshotRefresh();
         setQuestionSortOrder(newSort);
         if (newSort === 'random') {
             setShuffleTrigger(c => c + 1);
         }
     };
 
-    const triggerFilterChange = () => {
-        consumeFocus();
-        navigationActionRef.current = 'filter';
-        preservedIndexRef.current = 0;
-        triggerSnapshotRefresh();
+    const handleFilterChange = () => {
+        preservedIndexRef.current = 0; // Reset index when filters change
     };
     
     const handleDifficultyFilterChange = (newDifficulty: typeof difficultyFilter) => {
-        triggerFilterChange();
+        handleFilterChange();
         setDifficultyFilter(prev => (prev === newDifficulty ? 'all' : newDifficulty));
     };
 
     const handleShowWrongOnlyChange = () => {
-        triggerFilterChange();
+        handleFilterChange();
         const isTurningOn = !showWrongOnly;
         setShowWrongOnly(isTurningOn);
         if (isTurningOn) setShowUnansweredInAnyNotebook(false);
     };
 
     const handleShowUnansweredChange = () => {
-        triggerFilterChange();
+        handleFilterChange();
         const isTurningOn = !showUnansweredInAnyNotebook;
         setShowUnansweredInAnyNotebook(isTurningOn);
         if (isTurningOn) setShowWrongOnly(false);
     };
     
     const handleSourceFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        triggerFilterChange();
+        handleFilterChange();
         setSourceFilter(e.target.value);
     };
     
-     const handleShuffleOptionsToggle = () => {
-        setShuffleOptions(s => !s);
-        setShuffleTrigger(c => c + 1);
+    const currentQuestion = useMemo(() => {
+        if (currentQuestionIndex > -1) {
+            return sortedQuestions[currentQuestionIndex];
+        }
+        // Fallback to find from original list if it was filtered out after answering
+        return questionsInNotebook.find(q => q.id === activeQuestionId);
+    }, [currentQuestionIndex, sortedQuestions, questionsInNotebook, activeQuestionId]);
+
+    const displayedQuestionRef = useRef<Question | null>(null);
+    if (currentQuestion) {
+        displayedQuestionRef.current = currentQuestion;
+    }
+    const questionToRender = isCompleted ? (displayedQuestionRef.current ?? currentQuestion) : currentQuestion;
+
+    const prevQuestionIdRef = useRef<string | null>(null);
+
+    useEffect(() => {
+        if (!questionToRender) {
+            prevQuestionIdRef.current = null; // Reset when there's no question
+            return;
+        }
+
+        const isNewQuestion = questionToRender.id !== prevQuestionIdRef.current;
+        
+        if (isNewQuestion) {
+            // Shuffle options for the new question by default
+            const options = [...questionToRender.options];
+            for (let i = options.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [options[i], options[j]] = [options[j], options[i]];
+            }
+            setShuffledOptions(options);
+        }
+
+        const savedAnswer = userAnswers.get(questionToRender.id);
+        if (savedAnswer) {
+            const correct = savedAnswer.attempts.includes(questionToRender.correctAnswer);
+            setIsCompleted(true);
+            setSelectedOption(correct ? questionToRender.correctAnswer : savedAnswer.attempts[savedAnswer.attempts.length - 1]);
+            setWrongAnswers(new Set(savedAnswer.attempts.filter(a => a !== questionToRender.correctAnswer)));
+        } else {
+            // Only reset these if it's a new question, to avoid clobbering state during an answer attempt.
+            if (isNewQuestion) {
+                setSelectedOption(null);
+                setWrongAnswers(new Set());
+                setIsCompleted(false);
+                setStruckOptions(new Set());
+            }
+        }
+        
+        prevQuestionIdRef.current = questionToRender.id;
+
+    }, [questionToRender, userAnswers]);
+    
+    const handleShuffleOptions = () => {
+        if (!questionToRender) return;
+        const options = [...questionToRender.options];
+        for (let i = options.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [options[i], options[j]] = [options[j], options[i]];
+        }
+        setShuffledOptions(options);
     };
+
+    useEffect(() => {
+        if (sortedQuestions.length > 0) {
+            const idToFocus = questionIdToFocus;
+            const indexToFocus = idToFocus ? sortedQuestions.findIndex(q => q.id === idToFocus) : -1;
+            
+            if (indexToFocus !== -1) {
+                setActiveQuestionId(sortedQuestions[indexToFocus].id);
+            } else if (!activeQuestionId || !sortedQuestions.some(q => q.id === activeQuestionId)) {
+                setActiveQuestionId(sortedQuestions[0].id);
+            }
+        } else {
+            setActiveQuestionId(null);
+        }
+    }, [sortedQuestions, questionIdToFocus]);
+
 
     useEffect(() => {
         if (activeQuestionId) {
             localStorage.setItem('procap_lastQuestionId', activeQuestionId);
         }
     }, [activeQuestionId]);
-    
-    useEffect(() => {
-        if (!questionToRender) return;
-        
-        const savedAnswer = userAnswers.get(questionToRender.id);
-        if (savedAnswer && savedAnswer.notebook_id === notebookId) {
-            const correct = savedAnswer.attempts.includes(questionToRender.correctAnswer);
-            setIsCompleted(true);
-            setSelectedOption(correct ? questionToRender.correctAnswer : savedAnswer.attempts[savedAnswer.attempts.length - 1]);
-            setWrongAnswers(new Set(savedAnswer.attempts.filter(a => a !== questionToRender.correctAnswer)));
-        } else {
-            setSelectedOption(null);
-            setWrongAnswers(new Set());
-            setIsCompleted(false);
-            setStruckOptions(new Set());
-        }
-    }, [activeQuestionId, questionToRender, userAnswers, notebookId]);
     
     useEffect(() => {
         if (setScreenContext && questionToRender) {
@@ -995,8 +995,7 @@ export const NotebookDetailView: React.FC<{
         const success = await updateContentComments('questions', commentingOnQuestion.id, updatedComments);
         if (success) {
             const updatedItem = {...commentingOnQuestion, comments: updatedComments };
-            const { source, ...updatedItemWithoutSource } = updatedItem;
-            setAppData(prev => ({ ...prev, sources: prev.sources.map((s: Source) => s.id === updatedItem.source_id ? { ...s, questions: s.questions.map(q => q.id === updatedItem.id ? updatedItemWithoutSource : q) } : s) }));
+            setAppData(prev => ({ ...prev, sources: prev.sources.map(s => s.id === updatedItem.source_id ? { ...s, questions: s.questions.map(q => q.id === updatedItem.id ? updatedItem : q) } : s) }));
             setCommentingOnQuestion(updatedItem);
         }
     };
@@ -1015,52 +1014,58 @@ export const NotebookDetailView: React.FC<{
             setSelectedOption(option);
         }
     };
-    
-    const persistAnswer = async (isFinalCorrect: boolean, finalWrongAnswers: Set<string>) => {
-        if (!questionToRender || !selectedOption) return;
+
+    const handleConfirmAnswer = async () => {
+        if (!selectedOption || !questionToRender) return;
+
+        const isCorrect = selectedOption === questionToRender.correctAnswer;
+        const newWrongAnswers = new Set(wrongAnswers);
         
-        const wasAnsweredBeforeInThisNotebook = userAnswers.has(questionToRender.id);
-        if (wasAnsweredBeforeInThisNotebook) return;
-
-        const wasAnsweredBeforeAnywhere = appData.userQuestionAnswers.some(a => a.user_id === currentUser.id && a.question_id === questionToRender.id);
-
-        let xpGained = 0;
-        if (isFinalCorrect && !wasAnsweredBeforeAnywhere) {
-            const xpMap = [10, 5, 2]; // XP for 0, 1, or 2 wrong attempts before correct answer
-            xpGained = xpMap[finalWrongAnswers.size] ?? 0;
+        if (isCorrect) {
+            setIsCompleted(true);
+        } else {
+            newWrongAnswers.add(selectedOption);
+            setWrongAnswers(newWrongAnswers);
+            if (newWrongAnswers.size >= 3) {
+                setIsCompleted(true);
+            }
         }
 
-        const attempts = [...finalWrongAnswers, selectedOption];
-        const isCorrectFirstTry = isFinalCorrect && attempts.length === 1;
+        const wasAnsweredBefore = userAnswers.has(questionToRender.id);
+        if ((isCorrect || newWrongAnswers.size >= 3) && !wasAnsweredBefore) {
+            const attempts: string[] = [...newWrongAnswers, selectedOption];
+            const isCorrectFirstTry = attempts.length === 1 && isCorrect;
+            const xpMap = [10, 5, 2, 0];
+            const xpGained = isCorrect ? (xpMap[wrongAnswers.size] || 0) : 0;
 
-        const answerPayload: Partial<UserQuestionAnswer> = {
-            user_id: currentUser.id,
-            notebook_id: notebookId,
-            question_id: questionToRender.id,
-            attempts: attempts,
-            is_correct_first_try: isCorrectFirstTry,
-            xp_awarded: xpGained,
-            timestamp: new Date().toISOString(),
-        };
+            if (xpGained > 0) {
+                logXpEvent(currentUser.id, xpGained, 'QUESTION_ANSWER', questionToRender.id).then(newEvent => {
+                    if (newEvent) {
+                        setAppData(prev => ({...prev, xp_events: [newEvent, ...prev.xp_events]}));
+                    }
+                });
+            }
 
-        const savedAnswer = await upsertUserQuestionAnswer(answerPayload);
-
-        if (savedAnswer) {
-            setAppData(prev => {
-                const newAnswers = prev.userQuestionAnswers.filter(a => a.id !== savedAnswer.id);
-                newAnswers.push(savedAnswer);
-                return { ...prev, userQuestionAnswers: newAnswers };
-            });
-        }
-        
-        if (!wasAnsweredBeforeAnywhere) {
+            const answerPayload: Partial<UserQuestionAnswer> = {
+                user_id: currentUser.id, notebook_id: notebookId, question_id: questionToRender.id,
+                attempts: attempts, is_correct_first_try: isCorrectFirstTry, xp_awarded: xpGained,
+                timestamp: new Date().toISOString()
+            };
+            const savedAnswer = await upsertUserQuestionAnswer(answerPayload);
+            if (savedAnswer) {
+                setAppData(prev => ({...prev, userQuestionAnswers: [...prev.userQuestionAnswers.filter(a => a.id !== savedAnswer.id), savedAnswer]}));
+            }
+            
             const newStats = { ...currentUser.stats };
             newStats.questionsAnswered = (newStats.questionsAnswered || 0) + 1;
+            
             const currentStreak = currentUser.stats.streak || 0;
             newStats.streak = isCorrectFirstTry ? currentStreak + 1 : 0;
+
             if (isCorrectFirstTry) {
                 newStats.correctAnswers = (newStats.correctAnswers || 0) + 1;
             }
+            
             const topic = questionToRender.source?.topic || 'Geral';
             if (!newStats.topicPerformance[topic]) newStats.topicPerformance[topic] = { correct: 0, total: 0 };
             newStats.topicPerformance[topic].total += 1;
@@ -1069,33 +1074,6 @@ export const NotebookDetailView: React.FC<{
             const userWithNewStats = { ...currentUser, stats: newStats, xp: (Number(currentUser.xp) || 0) + xpGained };
             const finalUser = checkAndAwardAchievements(userWithNewStats, appData);
             updateUser(finalUser);
-
-            if (xpGained > 0) {
-                 logXpEvent(currentUser.id, xpGained, 'QUESTION_ANSWER', questionToRender.id).then(newEvent => {
-                    if (newEvent) setAppData(prev => ({...prev, xp_events: [newEvent, ...prev.xp_events]}));
-                });
-            }
-        }
-    };
-
-
-    const handleConfirmAnswer = async () => {
-        if (!selectedOption || !questionToRender || isCompleted) return;
-
-        const isCorrect = selectedOption === questionToRender.correctAnswer;
-
-        if (isCorrect) {
-            setIsCompleted(true);
-            await persistAnswer(true, wrongAnswers);
-        } else {
-            const newWrongAnswers = new Set(wrongAnswers).add(selectedOption);
-            setWrongAnswers(newWrongAnswers);
-            setSelectedOption(null); // Reset selection for next try
-
-            if (newWrongAnswers.size >= 3) {
-                setIsCompleted(true);
-                await persistAnswer(false, newWrongAnswers);
-            }
         }
     };
 
@@ -1160,26 +1138,18 @@ export const NotebookDetailView: React.FC<{
     };
     
     const navigateQuestion = (direction: 1 | -1) => {
-        consumeFocus();
-        let newIndex;
-        if (currentQuestionIndex < 0) { // Current question was filtered out
-            newIndex = direction === 1 ? 0 : stableSortedQuestions.length - 1;
-        } else {
-            newIndex = currentQuestionIndex + direction;
-        }
-        
-        if (newIndex >= 0 && newIndex < stableSortedQuestions.length) {
-            setActiveQuestionId(stableSortedQuestions[newIndex].id);
+        const newIndex = (currentQuestionIndex > -1 ? currentQuestionIndex : 0) + direction;
+        if (newIndex >= 0 && newIndex < sortedQuestions.length) {
+            setActiveQuestionId(sortedQuestions[newIndex].id);
         }
     };
     
     const handleNextUnanswered = () => {
-        consumeFocus();
         let nextIndex = -1;
         const startIndex = currentQuestionIndex > -1 ? currentQuestionIndex : -1;
 
-        for (let i = startIndex + 1; i < stableSortedQuestions.length; i++) {
-            if (!userAnswers.has(stableSortedQuestions[i].id)) {
+        for (let i = startIndex + 1; i < sortedQuestions.length; i++) {
+            if (!userAnswers.has(sortedQuestions[i].id)) {
                 nextIndex = i;
                 break;
             }
@@ -1187,7 +1157,7 @@ export const NotebookDetailView: React.FC<{
         
         if (nextIndex === -1) {
             for (let i = 0; i < startIndex; i++) {
-                if (!userAnswers.has(stableSortedQuestions[i].id)) {
+                if (!userAnswers.has(sortedQuestions[i].id)) {
                     nextIndex = i;
                     break;
                 }
@@ -1195,12 +1165,12 @@ export const NotebookDetailView: React.FC<{
         }
 
         if (nextIndex !== -1) {
-            setActiveQuestionId(stableSortedQuestions[nextIndex].id);
+            setActiveQuestionId(sortedQuestions[nextIndex].id);
         } else {
             alert("Parabéns! Você respondeu todas as questões deste caderno com os filtros atuais.");
         }
     };
-
+    
     if (!questionToRender) {
         return (
             <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
@@ -1212,7 +1182,8 @@ export const NotebookDetailView: React.FC<{
     
     const revealedHints = questionToRender.hints.slice(0, wrongAnswers.size);
     const showAllHints = isCompleted && selectedOption === questionToRender.correctAnswer;
-    
+    const optionsToRender = shuffledOptions || (questionToRender?.options as string[] || []);
+
     return (
       <>
         <CommentsModal 
@@ -1232,8 +1203,6 @@ export const NotebookDetailView: React.FC<{
             allQuestions={allQuestions}
             currentUser={currentUser}
             onStartClearing={() => setIsClearing(true)}
-            notebookLeaderboards={globalStats.notebookLeaderboards}
-            isLoadingGlobalStats={isLoadingGlobalStats}
             onClearAnswers={async (questionIdsToClear) => {
                 const success = await clearNotebookAnswers(currentUser.id, notebookId, questionIdsToClear.length > 0 ? questionIdsToClear : undefined);
                 if (success) {
@@ -1248,7 +1217,7 @@ export const NotebookDetailView: React.FC<{
                             return false; 
                         })
                     }));
-                    if(stableSortedQuestions.length > 0) setActiveQuestionId(stableSortedQuestions[0].id);
+                    if(sortedQuestions.length > 0) setActiveQuestionId(sortedQuestions[0].id);
                 } else {
                     alert("Não foi possível limpar as respostas.");
                 }
@@ -1276,7 +1245,7 @@ export const NotebookDetailView: React.FC<{
                                 return false; 
                             })
                         }));
-                        if(stableSortedQuestions.length > 0) setActiveQuestionId(stableSortedQuestions[0].id);
+                        if(sortedQuestions.length > 0) setActiveQuestionId(sortedQuestions[0].id);
                     } else {
                         alert("Não foi possível limpar as respostas.");
                     }
@@ -1292,7 +1261,6 @@ export const NotebookDetailView: React.FC<{
                 isOpen={isQuestionStatsModalOpen}
                 onClose={() => setIsQuestionStatsModalOpen(false)}
                 question={questionToRender}
-                globalStats={globalStats.questionStats}
             />
         )}
         <div className="bg-card-light dark:bg-card-dark p-6 rounded-lg shadow-md border border-border-light dark:border-border-dark">
@@ -1306,7 +1274,7 @@ export const NotebookDetailView: React.FC<{
                         </button>
                     </div>
                     <div className="text-right">
-                        <span className="font-semibold">{(currentQuestionIndex > -1 ? currentQuestionIndex : 0) + 1} / {stableSortedQuestions.length}</span>
+                        <span className="font-semibold">{(currentQuestionIndex > -1 ? currentQuestionIndex : 0) + 1} / {sortedQuestions.length}</span>
                     </div>
                 </div>
                 <div className="w-full text-left md:text-right text-xs text-gray-500 dark:text-gray-400 mt-2">
@@ -1318,21 +1286,20 @@ export const NotebookDetailView: React.FC<{
             <div className="w-full max-w-full flex flex-wrap justify-start md:justify-between items-center gap-4 mb-4 p-4 bg-background-light dark:bg-background-dark rounded-lg border border-border-light dark:border-border-dark text-sm">
                 <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-semibold">Ordenar por:</span>
-                    <button title="Padrão do Caderno" onClick={() => handleSortChange('default')} className={`p-2 rounded-full transition ${questionSortOrder === 'default' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>#️⃣</button>
                     <button title="Temperatura" onClick={() => handleSortChange('temp')} className={`p-2 rounded-full transition ${questionSortOrder === 'temp' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🌡️</button>
                     <button title="Mais Recentes" onClick={() => handleSortChange('date')} className={`p-2 rounded-full transition ${questionSortOrder === 'date' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🕐</button>
                     <button title="Aleatória" onClick={() => handleSortChange('random')} className={`p-2 rounded-full transition ${questionSortOrder === 'random' ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🔀</button>
-                    <button title="Embaralhar Alternativas" onClick={handleShuffleOptionsToggle} className={`p-2 rounded-full transition ${shuffleOptions ? 'bg-primary-light/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>🎲</button>
+                    <div className="border-l border-border-light dark:border-border-dark h-6 mx-2"></div>
+                    <button title="Embaralhar Alternativas" onClick={handleShuffleOptions} className="p-2 rounded-full transition hover:bg-gray-200 dark:hover:bg-gray-700">
+                        <ShuffleIcon className="w-5 h-5" />
+                    </button>
                 </div>
                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-semibold">Filtrar por Dificuldade:</span>
+                    <span className="font-semibold">Filtrar:</span>
                      {(['Fácil', 'Médio', 'Difícil'] as const).map(d => (
                         <button key={d} onClick={() => handleDifficultyFilterChange(d)} className={`px-3 py-1 rounded-md transition ${difficultyFilter === d ? 'bg-primary-light text-white' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}>{d}</button>
                     ))}
-                    {isLoadingGlobalStats && <span className="text-xs text-gray-400"> (Carregando estatísticas...)</span>}
-                </div>
-                 <div className="flex items-center gap-2 flex-wrap">
-                     <button title="Mostrar apenas questões erradas" onClick={handleShowWrongOnlyChange} className={`p-2 rounded-full transition ${showWrongOnly ? 'bg-red-500/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}> <XCircleIcon className={`w-5 h-5 ${showWrongOnly ? 'text-red-500' : 'text-gray-500'}`} /> </button>
+                    <button title="Mostrar apenas questões erradas" onClick={handleShowWrongOnlyChange} className={`p-2 rounded-full transition ${showWrongOnly ? 'bg-red-500/20' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}> <XCircleIcon className={`w-5 h-5 ${showWrongOnly ? 'text-red-500' : 'text-gray-500'}`} /> </button>
                     {notebook === 'all' && ( <button title="Mostrar apenas questões inéditas (não respondidas em nenhum caderno)" onClick={handleShowUnansweredChange} className={`flex items-center gap-1 px-3 py-1 rounded-md text-sm font-semibold transition ${showUnansweredInAnyNotebook ? 'bg-blue-500/20 text-blue-500' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}> <SparklesIcon className="w-4 h-4" /> Inéditas </button> )}
                 </div>
                  {notebook === 'all' && (
@@ -1350,18 +1317,18 @@ export const NotebookDetailView: React.FC<{
                         </select>
                     </div>
                 )}
-                {notebook === 'all' && ( <div className="flex items-center gap-2"> <input type="checkbox" id="prioritizeApostilas" checked={prioritizeApostilas} onChange={e => { triggerListRefresh(); setPrioritizeApostilas(e.target.checked); }} className="h-4 w-4 rounded border-gray-300 text-primary-light focus:ring-primary-light" /> <label htmlFor="prioritizeApostilas" className="font-semibold cursor-pointer">Priorizar (Apostila)</label> </div> )}
+                {notebook === 'all' && ( <div className="flex items-center gap-2"> <input type="checkbox" id="prioritizeApostilas" checked={prioritizeApostilas} onChange={e => setPrioritizeApostilas(e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-primary-light focus:ring-primary-light" /> <label htmlFor="prioritizeApostilas" className="font-semibold cursor-pointer">Priorizar (Apostila)</label> </div> )}
             </div>
             
             <FontSizeControl fontSize={fontSize} setFontSize={setFontSize} className="mb-4" />
             <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5 mb-6">
-                <div className="bg-primary-light h-2.5 rounded-full" style={{ width: `${stableSortedQuestions.length > 0 ? (((currentQuestionIndex > -1 ? currentQuestionIndex : 0) + 1) / stableSortedQuestions.length) * 100 : 0}%` }}></div>
+                <div className="bg-primary-light h-2.5 rounded-full" style={{ width: `${sortedQuestions.length > 0 ? (((currentQuestionIndex > -1 ? currentQuestionIndex : 0) + 1) / sortedQuestions.length) * 100 : 0}%` }}></div>
             </div>
 
             <h2 className={`text-xl font-semibold mb-4 ${FONT_SIZE_CLASSES[fontSize]}`}>{questionToRender?.questionText || 'Carregando enunciado...'}</h2>
 
             <div className={`space-y-3 ${FONT_SIZE_CLASSES[fontSize]}`}>
-                {displayedOptions.map((option: string, index: number) => {
+                {optionsToRender.map((option: string, index: number) => {
                     const isSelected = selectedOption === option;
                     const isWrongAttempt = wrongAnswers.has(option);
                     const isCorrect = option === questionToRender.correctAnswer;
@@ -1438,8 +1405,8 @@ export const NotebookDetailView: React.FC<{
             <div className="mt-6 flex justify-between items-center">
                  <div>
                     <div className="flex items-center gap-2">
-                        <button onClick={() => navigateQuestion(-1)} disabled={currentQuestionIndex === -1 || currentQuestionIndex === 0} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 rounded-md disabled:opacity-50">Anterior</button>
-                        <button onClick={() => navigateQuestion(1)} disabled={currentQuestionIndex === -1 || currentQuestionIndex === stableSortedQuestions.length - 1} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 rounded-md disabled:opacity-50">Próxima</button>
+                        <button onClick={() => navigateQuestion(-1)} disabled={currentQuestionIndex === 0} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 rounded-md disabled:opacity-50">Anterior</button>
+                        <button onClick={() => navigateQuestion(1)} disabled={currentQuestionIndex === sortedQuestions.length - 1} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 rounded-md disabled:opacity-50">Próxima</button>
                     </div>
                     <div className="mt-2">
                         <button onClick={handleNextUnanswered} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-sm rounded-md hover:bg-gray-300 dark:hover:bg-gray-600">

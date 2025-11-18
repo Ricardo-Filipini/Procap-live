@@ -273,7 +273,6 @@ ${screenContext || "Nenhum conteúdo específico na tela. O usuário está prova
                                         const { tableName } = args;
                                         const allowedTables = ['question_notebooks', 'sources'];
                                         if (allowedTables.includes(tableName) && supabase) {
-                                            // FIX: Changed select to '*' to prevent column not found errors, as 'name' exists in one table and 'title' in another.
                                             const { data, error } = await supabase.from(tableName).select('*');
                                             if (error) {
                                                 result = { error: `Erro ao consultar a tabela: ${error.message}` };

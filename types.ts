@@ -1,7 +1,5 @@
 
 
-
-
 import React from 'react';
 
 export type Theme = 'light' | 'dark';
@@ -13,7 +11,6 @@ export type LiveAgentStatus = 'inactive' | 'connecting' | 'connected' | 'error' 
 
 export interface View {
   name: string;
-  // Fix: Use React.ReactElement as JSX is not in scope in .ts files.
   icon: (props: React.SVGProps<SVGSVGElement>) => React.ReactElement;
   adminOnly?: boolean;
 }
@@ -137,7 +134,6 @@ export interface LinkFile {
     url?: string;
     file_path?: string;
     file_name?: string;
-    // FIX: Added 'is_anki_deck' to support new study functionality.
     is_anki_deck?: boolean;
     created_at: string;
     hot_votes: number;
@@ -187,7 +183,6 @@ export interface UserQuestionAnswer {
 }
 
 
-// Fix: Add optional created_at and updated_at to align with database schema.
 export interface UserMessageVote {
     id: string;
     user_id: string;
@@ -198,7 +193,6 @@ export interface UserMessageVote {
     updated_at?: string;
 }
 
-// Fix: Add optional created_at and updated_at to align with database schema.
 export interface UserSourceVote {
     id: string;
     user_id: string;
@@ -294,7 +288,6 @@ export interface XpEvent {
     created_at: string;
 }
 
-// FIX: Added UserMood interface for the Contagem view.
 export interface UserMood {
     user_id: string;
     mood: string;
@@ -317,7 +310,6 @@ export interface AppData {
   userQuestionAnswers: UserQuestionAnswer[];
   userCaseStudyInteractions: UserCaseStudyInteraction[];
   xp_events: XpEvent[];
-  // FIX: Added userMoods to AppData for the Contagem view.
   userMoods: UserMood[];
 }
 
@@ -356,7 +348,6 @@ export interface MainContentProps {
   isLiveAgentActive?: boolean;
   liveAgentStatus?: LiveAgentStatus;
   agentSettings?: AgentSettings;
-  // FIX: Made the 'term' property optional to match its usage in the application, resolving a type mismatch.
   navTarget?: {viewName: string, term?: string, id?: string, subId?: string} | null;
   setNavTarget?: (target: {viewName: string, term?: string, id?: string, subId?: string} | null) => void;
   screenContext?: string | null;

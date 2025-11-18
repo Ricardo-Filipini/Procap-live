@@ -1,8 +1,7 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts';
 import { MainContentProps, UserMood } from '../../types';
-import { upsertUserMood, getUserMoods } from '../../services/supabaseClient';
+import { upsertUserMood, getContagemData } from '../../services/supabaseClient';
 
 const PROCAP_START = new Date('2025-11-03T08:00:00-03:00'); // Brasília time (GMT-3)
 const PROVA_TIME = new Date('2025-11-23T08:00:00-03:00');
@@ -29,23 +28,22 @@ const CustomYAxisTick: React.FC<any> = ({ x, y, payload }) => (
 
 export const ContagemView: React.FC<MainContentProps> = ({ appData, setAppData, currentUser }) => {
     const [now, setNow] = useState(new Date());
-    const [isLoadingContent, setIsLoadingContent] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
+
+    useEffect(() => {
+        const areDataLoaded = appData.userMoods.length > 0;
+        if (!areDataLoaded) {
+            setIsLoading(true);
+            getContagemData().then(data => {
+                setAppData(prev => ({ ...prev, ...data }));
+            }).finally(() => setIsLoading(false));
+        }
+    }, [appData.userMoods.length, setAppData]);
 
     useEffect(() => {
         const timer = setInterval(() => setNow(new Date()), 1000);
         return () => clearInterval(timer);
     }, []);
-
-    useEffect(() => {
-        // Lazy load user moods if not present
-        if (appData.userMoods.length === 0) {
-            setIsLoadingContent(true);
-            getUserMoods().then(moods => {
-                setAppData(prev => ({ ...prev, userMoods: moods }));
-                setIsLoadingContent(false);
-            }).catch(() => setIsLoadingContent(false));
-        }
-    }, [appData.userMoods.length, setAppData]);
 
     const timeValues = useMemo(() => {
         const totalDuration = PROVA_TIME.getTime() - PROCAP_START.getTime();
@@ -105,9 +103,9 @@ export const ContagemView: React.FC<MainContentProps> = ({ appData, setAppData, 
             }));
         }
     };
-
-    if (isLoadingContent) {
-        return <div className="text-center p-8">Carregando dados de humor...</div>;
+    
+    if (isLoading) {
+        return <div className="text-center p-8">Carregando dados...</div>;
     }
 
     return (

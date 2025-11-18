@@ -1,21 +1,20 @@
-
-
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { MainContentProps } from '../../types';
-import { MindMap, Comment, ContentType, Source } from '../../types';
+import { MindMap, Comment, ContentType } from '../../types';
 import { CommentsModal } from '../shared/CommentsModal';
 import { ContentToolbar } from '../shared/ContentToolbar';
 import { FontSizeControl, FONT_SIZE_CLASSES } from '../shared/FontSizeControl';
 import { ContentActions } from '../shared/ContentActions';
 import { useContentViewController } from '../../hooks/useContentViewController';
 import { handleInteractionUpdate, handleVoteUpdate } from '../../lib/content';
-import { updateContentComments, getMindMaps, getSourcesBase } from '../../services/supabaseClient';
+import { updateContentComments, getMindMaps } from '../../services/supabaseClient';
 
 interface MindMapsViewProps extends MainContentProps {
+    allItems: (MindMap & { user_id: string, created_at: string, source: any})[];
     clearNavTarget: () => void;
 }
 
-export const MindMapsView: React.FC<MindMapsViewProps> = ({ appData, setAppData, currentUser, updateUser, navTarget, clearNavTarget }) => {
+export const MindMapsView: React.FC<MindMapsViewProps> = ({ allItems, appData, setAppData, currentUser, updateUser, navTarget, clearNavTarget }) => {
     const [isLoadingContent, setIsLoadingContent] = useState(false);
     const [commentingOn, setCommentingOn] = useState<MindMap | null>(null);
     const [fontSize, setFontSize] = useState(2);
@@ -23,45 +22,23 @@ export const MindMapsView: React.FC<MindMapsViewProps> = ({ appData, setAppData,
     const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
     const [navigationState, setNavigationState] = useState<{ targetId: string; groupKey: string } | null>(null);
 
-    const allItems = useMemo(() => appData.sources.flatMap(s => (s.mind_maps || []).map(mm => ({ ...mm, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
-
     useEffect(() => {
-        const hasData = appData.sources.some(s => s.mind_maps?.length > 0);
-
-        if (!hasData) {
+        const areContentLoaded = allItems.length > 0;
+        if (!areContentLoaded && appData.sources.length > 0) {
             setIsLoadingContent(true);
-            Promise.all([
-                getSourcesBase(),
-                getMindMaps()
-            ]).then(([sources, mindMaps]) => {
+            getMindMaps().then(allMindMaps => {
                 setAppData(prev => {
-                    const contentBySource = new Map<string, MindMap[]>();
-                    mindMaps.forEach((item: MindMap) => {
-                        const list = contentBySource.get(item.source_id) || [];
-                        list.push(item);
-                        contentBySource.set(item.source_id, list);
-                    });
-
-                    const newSources = [...prev.sources];
-                    const sourceMap = new Map(newSources.map(s => [s.id, s]));
-
-                    sources.forEach(source => {
-                       if (!sourceMap.has(source.id)) {
-                           sourceMap.set(source.id, source);
-                       }
-                    });
-                    
-                    sourceMap.forEach(source => {
-                       source.mind_maps = contentBySource.get(source.id) || source.mind_maps || [];
-                    });
-
-                    return { ...prev, sources: Array.from(sourceMap.values()) };
+                    const sourcesWithContent = prev.sources.map(source => ({
+                        ...source,
+                        mind_maps: allMindMaps.filter(mm => mm.source_id === source.id)
+                    }));
+                    return { ...prev, sources: sourcesWithContent };
                 });
-            }).catch(e => console.error(`Failed to load mind maps`, e))
-              .finally(() => setIsLoadingContent(false));
+                setIsLoadingContent(false);
+            });
         }
-    }, [appData.sources, setAppData]);
-    
+    }, [appData.sources, setAppData, allItems]);
+
     const {
         sort, setSort, filter, setFilter, favoritesOnly, setFavoritesOnly,
         isFiltering, aiFilterIds,
@@ -132,7 +109,7 @@ export const MindMapsView: React.FC<MindMapsViewProps> = ({ appData, setAppData,
         const success = await updateContentComments('mind_maps', commentingOn.id, updatedComments);
         if (success) {
             const updatedItem = {...commentingOn, comments: updatedComments };
-            setAppData(prev => ({ ...prev, sources: prev.sources.map((s: Source) => s.id === updatedItem.source_id ? { ...s, mind_maps: s.mind_maps.map(mm => mm.id === updatedItem.id ? updatedItem : mm) } : s) }));
+            setAppData(prev => ({ ...prev, sources: prev.sources.map(s => s.id === updatedItem.source_id ? { ...s, mind_maps: s.mind_maps.map(mm => mm.id === updatedItem.id ? updatedItem : mm) } : s) }));
             setCommentingOn(updatedItem);
         }
     };

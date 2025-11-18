@@ -1,10 +1,8 @@
 
 
-
-
 import React from 'react';
 import { AppData, View, ScheduleEvent, AgentSettings } from './types';
-import { BookOpenIcon, SparklesIcon, QuestionMarkCircleIcon, ShareIcon, UserCircleIcon, ShieldCheckIcon, CloudArrowUpIcon, UsersIcon, SpeakerWaveIcon, DocumentTextIcon, CalendarDaysIcon, PaperClipIcon, ClockIcon } from './components/Icons';
+import { BookOpenIcon, SparklesIcon, QuestionMarkCircleIcon, ShareIcon, UserCircleIcon, ShieldCheckIcon, CloudArrowUpIcon, UsersIcon, SpeakerWaveIcon, DocumentTextIcon, CalendarDaysIcon, PaperClipIcon } from './components/Icons';
 
 export const VIEWS: View[] = [
     { name: 'Questões', icon: QuestionMarkCircleIcon },
@@ -14,7 +12,6 @@ export const VIEWS: View[] = [
     { name: 'Resumos', icon: BookOpenIcon },
     { name: 'Perfil', icon: UserCircleIcon },
     { name: 'Mapas Mentais', icon: ShareIcon },
-    { name: 'Contagem', icon: ClockIcon },
     { name: 'Comunidade', icon: UsersIcon},
     { name: 'Estudo de Caso', icon: DocumentTextIcon },
     { name: 'Fontes', icon: CloudArrowUpIcon },
@@ -89,7 +86,6 @@ export const INITIAL_APP_DATA: AppData = {
   userQuestionAnswers: [],
   userCaseStudyInteractions: [],
   xp_events: [],
-  // FIX: Added missing userMoods property to INITIAL_APP_DATA to match the AppData type.
   userMoods: [],
 };
 

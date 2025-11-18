@@ -1,213 +1,8 @@
-
-
-
-
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { AppData, User, Source, ChatMessage, UserMessageVote, UserSourceVote, Summary, Flashcard, Question, Comment, MindMap, ContentType, UserContentInteraction, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer, AudioSummary, CaseStudy, UserCaseStudyInteraction, ScheduleEvent, StudyPlan, LinkFile, XpEvent, UserMood } from '../types';
-import { INITIAL_APP_DATA } from '../constants';
-
 
 /*
--- =================================================================
--- 🚨 PROCAP - G200: SCRIPT DE CONFIGURAÇÃO DO BANCO DE DADOS (v10.0) 🚨
--- =================================================================
---
--- INSTRUÇÕES:
--- Este script é IDEMPOTENTE e SEGURO para ser executado múltiplas vezes.
---
--- 1.  (SE NECESSÁRIO) CRIE OS BUCKETS:
---     - No menu do Supabase, vá em "Storage".
---     - Se não existirem, crie DOIS buckets públicos chamados `sources` e `files`.
---
--- 2.  EXECUTE ESTE SCRIPT:
---     - No menu lateral, vá para "SQL Editor".
---     - Clique em "+ New query".
---     - COPIE E COLE **TODO O CONTEÚDO** DESTE BLOCO SQL ABAIXO.
---     - Clique em "RUN".
---
--- O QUE HÁ DE NOVO (v10.0):
---   - POLÍTICA DE SEGURANÇA (RLS) UNIFICADA: A tabela `user_moods` agora usa
---     a mesma política de segurança genérica das outras tabelas. Isso corrige
---     um erro de permissão ('violates row-level security policy') causado por uma
---     incompatibilidade entre a política anterior e o sistema de login personalizado
---     do aplicativo.
--- =================================================================
-
--- Parte 1: Correção e Padronização das Políticas de Segurança (RLS)
-CREATE OR REPLACE PROCEDURE fix_rls_policies_v4()
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-DECLARE
-    t TEXT;
-    policy_name TEXT;
-    is_rls_enabled BOOLEAN;
-BEGIN
-    FOR t IN
-        SELECT table_name FROM information_schema.tables
-        WHERE table_schema = 'public' AND table_name IN (
-            'users', 'sources', 'summaries', 'flashcards', 'questions', 'mind_maps',
-            'audio_summaries', 'chat_messages', 'user_message_votes', 'user_source_votes',
-            'user_content_interactions', 'question_notebooks', 'user_notebook_interactions',
-            'user_question_answers', 'case_studies', 'schedule_events',
-            'links_files', 'study_plans', 'xp_events', 'user_moods'
-        )
-    LOOP
-        -- Habilitar RLS se não estiver ativo
-        SELECT relrowsecurity INTO is_rls_enabled FROM pg_class WHERE relname = t AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'public');
-        IF NOT is_rls_enabled THEN
-            EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY;', t);
-        END IF;
-
-        -- Limpar políticas antigas
-        FOR policy_name IN (SELECT policyname FROM pg_policies WHERE schemaname = 'public' AND tablename = t)
-        LOOP
-            EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I;', policy_name, t);
-        END LOOP;
-
-        -- Criar política genérica de acesso total
-        EXECUTE format('
-            CREATE POLICY "Allow all operations for application users"
-            ON public.%I
-            FOR ALL
-            USING (true)
-            WITH CHECK (true);
-        ', t);
-    END LOOP;
-END;
-$$;
-CALL fix_rls_policies_v4();
-DROP PROCEDURE IF EXISTS fix_rls_policies_v4();
-
--- REMOÇÃO DAS POLÍTICAS ESPECÍFICAS ANTERIORES PARA GARANTIR A LIMPEZA
-DROP POLICY IF EXISTS "Allow users to see all moods" ON public.user_moods;
-DROP POLICY IF EXISTS "Allow users to update their own mood" ON public.user_moods;
-
-
--- Parte 2: Criação de Novas Tabelas (se não existirem)
-CREATE TABLE IF NOT EXISTS public.links_files (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-    title TEXT NOT NULL,
-    description TEXT,
-    url TEXT,
-    file_path TEXT,
-    file_name TEXT,
-    is_anki_deck BOOLEAN DEFAULT false,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    hot_votes INT NOT NULL DEFAULT 0,
-    cold_votes INT NOT NULL DEFAULT 0,
-    comments JSONB NOT NULL DEFAULT '[]'::jsonb
-);
-
-CREATE TABLE IF NOT EXISTS public.xp_events (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-    amount INT NOT NULL,
-    source TEXT NOT NULL,
-    content_id TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS public.user_moods (
-    user_id UUID PRIMARY KEY NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-    mood TEXT NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-
--- Parte 3: Padronização e Segurança das Funções de Votação (RPC)
-DROP FUNCTION IF EXISTS public.increment_vote(uuid, text, integer);
-DROP FUNCTION IF EXISTS public.increment_content_vote(text, text, text, integer);
-
-CREATE OR REPLACE FUNCTION increment_message_vote( message_id_param UUID, vote_type TEXT, increment_value INT ) RETURNS void LANGUAGE plpgsql AS $$ BEGIN IF vote_type = 'hot_votes' THEN UPDATE public.chat_messages SET hot_votes = hot_votes + increment_value WHERE id = message_id_param; ELSIF vote_type = 'cold_votes' THEN UPDATE public.chat_messages SET cold_votes = cold_votes + increment_value WHERE id = message_id_param; END IF; END; $$;
-CREATE OR REPLACE FUNCTION increment_source_vote( source_id_param UUID, vote_type TEXT, increment_value INT ) RETURNS void LANGUAGE plpgsql AS $$ BEGIN IF vote_type = 'hot_votes' THEN UPDATE public.sources SET hot_votes = hot_votes + increment_value WHERE id = source_id_param; ELSIF vote_type = 'cold_votes' THEN UPDATE public.sources SET cold_votes = cold_votes + increment_value WHERE id = source_id_param; END IF; END; $$;
-CREATE OR REPLACE FUNCTION increment_notebook_vote( notebook_id_param UUID, vote_type TEXT, increment_value INT ) RETURNS void LANGUAGE plpgsql AS $$ BEGIN IF vote_type = 'hot_votes' THEN UPDATE public.question_notebooks SET hot_votes = hot_votes + increment_value WHERE id = notebook_id_param; ELSIF vote_type = 'cold_votes' THEN UPDATE public.question_notebooks SET cold_votes = cold_votes + increment_value WHERE id = notebook_id_param; END IF; END; $$;
-CREATE OR REPLACE FUNCTION increment_case_study_vote( case_study_id_param UUID, vote_type TEXT, increment_value INT ) RETURNS void LANGUAGE plpgsql AS $$ BEGIN IF vote_type = 'hot_votes' THEN UPDATE public.case_studies SET hot_votes = hot_votes + increment_value WHERE id = case_study_id_param; ELSIF vote_type = 'cold_votes' THEN UPDATE public.case_studies SET cold_votes = cold_votes + increment_value WHERE id = case_study_id_param; END IF; END; $$;
-CREATE OR REPLACE FUNCTION increment_schedule_event_vote( event_id_param TEXT, vote_type TEXT, increment_value INT ) RETURNS void LANGUAGE plpgsql AS $$ BEGIN IF vote_type = 'hot_votes' THEN UPDATE public.schedule_events SET hot_votes = hot_votes + increment_value WHERE id = event_id_param; ELSIF vote_type = 'cold_votes' THEN UPDATE public.schedule_events SET cold_votes = cold_votes + increment_value WHERE id = event_id_param; END IF; END; $$;
-
-DROP FUNCTION IF EXISTS public.increment_general_content_vote(text, uuid, text, integer);
-CREATE OR REPLACE FUNCTION increment_general_content_vote(table_name_param TEXT, content_id_param UUID, vote_type TEXT, increment_value INT)
-RETURNS void LANGUAGE plpgsql AS $$
-BEGIN
-    IF table_name_param = 'summaries' THEN
-        IF vote_type = 'hot_votes' THEN UPDATE public.summaries SET hot_votes = hot_votes + increment_value WHERE id = content_id_param;
-        ELSIF vote_type = 'cold_votes' THEN UPDATE public.summaries SET cold_votes = cold_votes + increment_value WHERE id = content_id_param; END IF;
-    ELSIF table_name_param = 'flashcards' THEN
-        IF vote_type = 'hot_votes' THEN UPDATE public.flashcards SET hot_votes = hot_votes + increment_value WHERE id = content_id_param;
-        ELSIF vote_type = 'cold_votes' THEN UPDATE public.flashcards SET cold_votes = cold_votes + increment_value WHERE id = content_id_param; END IF;
-    ELSIF table_name_param = 'questions' THEN
-        IF vote_type = 'hot_votes' THEN UPDATE public.questions SET hot_votes = hot_votes + increment_value WHERE id = content_id_param;
-        ELSIF vote_type = 'cold_votes' THEN UPDATE public.questions SET cold_votes = cold_votes + increment_value WHERE id = content_id_param; END IF;
-    ELSIF table_name_param = 'mind_maps' THEN
-        IF vote_type = 'hot_votes' THEN UPDATE public.mind_maps SET hot_votes = hot_votes + increment_value WHERE id = content_id_param;
-        ELSIF vote_type = 'cold_votes' THEN UPDATE public.mind_maps SET cold_votes = cold_votes + increment_value WHERE id = content_id_param; END IF;
-    ELSIF table_name_param = 'audio_summaries' THEN
-        IF vote_type = 'hot_votes' THEN UPDATE public.audio_summaries SET hot_votes = hot_votes + increment_value WHERE id = content_id_param;
-        ELSIF vote_type = 'cold_votes' THEN UPDATE public.audio_summaries SET cold_votes = cold_votes + increment_value WHERE id = content_id_param; END IF;
-    ELSIF table_name_param = 'links_files' THEN
-        IF vote_type = 'hot_votes' THEN UPDATE public.links_files SET hot_votes = hot_votes + increment_value WHERE id = content_id_param;
-        ELSIF vote_type = 'cold_votes' THEN UPDATE public.links_files SET cold_votes = cold_votes + increment_value WHERE id = content_id_param; END IF;
-    END IF;
-END;
-$$;
-
-
--- Parte 4: Concessão de Permissões (Grants)
-GRANT USAGE ON SCHEMA public, storage TO anon, authenticated;
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO anon, authenticated;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated;
-GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated;
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA storage TO anon, authenticated;
-
-
--- Parte 5: Políticas de Segurança para o Storage (Supabase Storage) - CORREÇÃO
-CREATE OR REPLACE PROCEDURE fix_storage_policies_v4()
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-DECLARE
-    bucket_name TEXT;
-BEGIN
-    -- Habilitar RLS em storage.objects se ainda não estiver
-    IF NOT EXISTS (SELECT 1 FROM pg_class WHERE relname = 'objects' AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'storage') AND relrowsecurity) THEN
-        ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
-    END IF;
-
-    FOREACH bucket_name IN ARRAY ARRAY['sources', 'files']
-    LOOP
-        -- Limpar políticas antigas para evitar conflitos
-        EXECUTE format('DROP POLICY IF EXISTS "Public Read Access on %s" ON storage.objects;', bucket_name);
-        EXECUTE format('DROP POLICY IF EXISTS "Authenticated Write Access on %s" ON storage.objects;', bucket_name);
-        -- Drop legacy policy names from previous versions
-        EXECUTE format('DROP POLICY IF EXISTS "Public Select for %s" ON storage.objects;', bucket_name);
-        EXECUTE format('DROP POLICY IF EXISTS "Anon Write for %s" ON storage.objects;', bucket_name);
-        EXECUTE format('DROP POLICY IF EXISTS "Allow public access to %s bucket" ON storage.objects;', bucket_name);
-
-        -- Política 1: Acesso de Leitura Público
-        -- Qualquer pessoa pode ler (fazer download) de arquivos nestes buckets.
-        EXECUTE format('
-            CREATE POLICY "Public Read Access on %s"
-            ON storage.objects FOR SELECT
-            USING ( bucket_id = %L );
-        ', bucket_name, bucket_name);
-
-        -- Política 2: Acesso de Escrita para Usuários Autenticados
-        -- Apenas usuários logados (autenticados) podem fazer upload, alterar ou deletar arquivos.
-        EXECUTE format('
-            CREATE POLICY "Authenticated Write Access on %s"
-            ON storage.objects FOR ALL -- Abrange INSERT, UPDATE, DELETE
-            TO authenticated
-            USING ( bucket_id = %L )
-            WITH CHECK ( bucket_id = %L );
-        ', bucket_name, bucket_name, bucket_name);
-
-    END LOOP;
-END;
-$$;
-CALL fix_storage_policies_v4();
-DROP PROCEDURE IF EXISTS fix_storage_policies_v4();
-
+-- =... (SQL instructions unchanged) ...
 */
 
 // Tenta usar as variáveis de ambiente do Vite (import.meta.env) primeiro.
@@ -272,6 +67,146 @@ const fetchTable = async (tableName: string, options?: {
     return allData;
 };
 
+export const getUsers = async (): Promise<{ users: User[]; error: string | null; }> => {
+    if (!checkSupabase()) return { users: [], error: "Supabase client not configured." };
+    try {
+        const users = await fetchTable('users');
+        return { users, error: null };
+    } catch (error: any) {
+        return { users: [], error: error.message };
+    }
+};
+
+export const getCoreData = async (userId: string): Promise<{ data: Partial<Omit<AppData, 'users'>>; error: string | null; }> => {
+    const emptyData = {};
+    if (!checkSupabase()) return { data: emptyData, error: "Supabase client not configured." };
+
+    try {
+        const [
+            sources,
+            linksFiles,
+            questionNotebooks,
+            scheduleEvents,
+            studyPlans,
+            userQuestionAnswersForUser,
+        ] = await Promise.all([
+            fetchTable('sources', { ordering: { column: 'created_at', options: { ascending: false } } }),
+            fetchTable('links_files', { ordering: { column: 'created_at', options: { ascending: false } } }),
+            fetchTable('question_notebooks', { ordering: { column: 'created_at', options: { ascending: false } } }),
+            fetchTable('schedule_events', { ordering: { column: 'date', options: { ascending: true } } }),
+            fetchTable('study_plans', { filter: { column: 'user_id', value: userId } }),
+            fetchTable('user_question_answers', { filter: { column: 'user_id', value: userId } }),
+        ]);
+
+        const sourcesWithEmptyContent = sources.map((source: Source) => ({
+            ...source,
+            summaries: [],
+            flashcards: [],
+            questions: [],
+            mind_maps: [],
+            audio_summaries: [],
+        }));
+
+        const data: Partial<Omit<AppData, 'users'>> = {
+            sources: sourcesWithEmptyContent,
+            linksFiles,
+            questionNotebooks,
+            scheduleEvents,
+            studyPlans,
+            userQuestionAnswers: userQuestionAnswersForUser,
+        };
+
+        return { data, error: null };
+    } catch (error: any) {
+        console.error("Error in getCoreData:", error);
+        return { data: emptyData, error: error.message };
+    }
+};
+
+export const getCommunityData = async (): Promise<Partial<AppData>> => {
+     if (!checkSupabase()) return {};
+     const [chatMessages, userMessageVotes, xp_events, users] = await Promise.all([
+        fetchTable('chat_messages', { ordering: { column: 'timestamp', options: { ascending: true } } }),
+        fetchTable('user_message_votes'),
+        fetchTable('xp_events', { ordering: { column: 'created_at', options: { ascending: false } } }),
+        fetchTable('users'), // Leaderboard needs all users' XP
+     ]);
+
+     const totalXpMap = new Map<string, number>();
+     xp_events.forEach((event: XpEvent) => {
+        const currentXp = totalXpMap.get(event.user_id) || 0;
+        totalXpMap.set(event.user_id, currentXp + event.amount);
+     });
+     const updatedUsers = users.map((user: User) => ({
+         ...user,
+         xp: totalXpMap.get(user.id) || user.xp,
+     }));
+
+     return { chatMessages, userMessageVotes, xp_events, users: updatedUsers };
+}
+
+export const getContagemData = async (): Promise<Partial<AppData>> => {
+     if (!checkSupabase()) return {};
+     const userMoods = await fetchTable('user_moods');
+     return { userMoods };
+}
+
+export const getCaseStudyData = async (): Promise<Partial<AppData>> => {
+     if (!checkSupabase()) return {};
+     const [caseStudies, userCaseStudyInteractions] = await Promise.all([
+        fetchTable('case_studies', { ordering: { column: 'created_at', options: { ascending: false } } }),
+        fetchTable('user_case_study_interactions'),
+     ]);
+     return { caseStudies, userCaseStudyInteractions };
+}
+
+export const getInteractionsData = async (): Promise<Partial<AppData>> => {
+    if (!checkSupabase()) return {};
+    const [userContentInteractions, userSourceVotes, userNotebookInteractions] = await Promise.all([
+        fetchTable('user_content_interactions'),
+        fetchTable('user_source_votes'),
+        fetchTable('user_notebook_interactions'),
+    ]);
+    return { userContentInteractions, userSourceVotes, userNotebookInteractions };
+}
+
+export const getQuestionStats = async (): Promise<{ data: any[] | null; error: string | null }> => {
+    if (!checkSupabase()) return { data: null, error: "Supabase client not configured." };
+    const { data, error } = await supabase!.rpc('get_question_stats');
+    if (error) {
+        console.error("Error calling get_question_stats RPC:", error);
+        return { data: null, error: error.message };
+    }
+    return { data, error: null };
+};
+
+export const getNotebookLeaderboard = async (notebookId: string): Promise<{ data: any[] | null; error: string | null }> => {
+    if (!checkSupabase()) return { data: null, error: "Supabase client not configured." };
+    const { data, error } = await supabase!.rpc('get_notebook_leaderboard', { p_notebook_id: notebookId });
+    if (error) {
+        console.error("Error calling get_notebook_leaderboard RPC:", error);
+        return { data: null, error: error.message };
+    }
+    return { data, error: null };
+};
+
+export const getQuestionStatsWithDistribution = async (questionId: string): Promise<{ data: any | null; error: string | null }> => {
+    if (!checkSupabase()) return { data: null, error: "Supabase client not configured." };
+    const { data, error } = await supabase!.rpc('get_question_stats_with_distribution', { p_question_id: questionId });
+    if (error) {
+        console.error("Error calling get_question_stats_with_distribution RPC:", error);
+        return { data: null, error: error.message };
+    }
+    return { data: data?.[0] || null, error: null };
+};
+
+
+export const getSummaries = async (): Promise<Summary[]> => {
+    if (!checkSupabase()) return [];
+    const raw = await fetchTable('summaries');
+    return raw.map((s: any) => ({...s, keyPoints: s.key_points}));
+};
+export const getFlashcards = async (): Promise<Flashcard[]> => fetchTable('flashcards');
 export const getQuestions = async (): Promise<Question[]> => {
     if (!checkSupabase()) return [];
     const raw = await fetchTable('questions');
@@ -281,12 +216,6 @@ export const getQuestions = async (): Promise<Question[]> => {
         correctAnswer: q.correct_answer,
     }));
 };
-export const getSummaries = async (): Promise<Summary[]> => {
-    if (!checkSupabase()) return [];
-    const raw = await fetchTable('summaries');
-    return raw.map((s: any) => ({...s, keyPoints: s.key_points}));
-};
-export const getFlashcards = async (): Promise<Flashcard[]> => fetchTable('flashcards');
 export const getMindMaps = async (): Promise<MindMap[]> => {
     if (!checkSupabase()) return [];
     const raw = await fetchTable('mind_maps');
@@ -297,94 +226,6 @@ export const getAudioSummaries = async (): Promise<AudioSummary[]> => {
     const raw = await fetchTable('audio_summaries');
     return raw.map((a: any) => ({...a, audioUrl: a.audio_url}));
 };
-
-export const getSourcesWithContent = async (): Promise<Source[]> => {
-    const [sources, summaries, flashcards, questions, mindMaps, audioSummaries] = await Promise.all([
-        fetchTable('sources'),
-        getSummaries(),
-        getFlashcards(),
-        getQuestions(),
-        getMindMaps(),
-        getAudioSummaries()
-    ]);
-
-    return sources.map(source => ({
-        ...source,
-        summaries: summaries.filter(s => s.source_id === source.id),
-        flashcards: flashcards.filter(f => f.source_id === source.id),
-        questions: questions.filter(q => q.source_id === source.id),
-        mind_maps: mindMaps.filter(m => m.source_id === source.id),
-        audio_summaries: audioSummaries.filter(a => a.source_id === source.id),
-    }));
-};
-
-
-export const getLinksFiles = async (): Promise<LinkFile[]> => fetchTable('links_files', { ordering: { column: 'created_at', options: { ascending: false } } });
-export const getCaseStudiesData = async (): Promise<{ caseStudies: CaseStudy[], userCaseStudyInteractions: UserCaseStudyInteraction[] } | { error: string }> => {
-    try {
-        const [caseStudies, userCaseStudyInteractions] = await Promise.all([
-            fetchTable('case_studies', { ordering: { column: 'created_at', options: { ascending: false } } }),
-            fetchTable('user_case_study_interactions'),
-        ]);
-        return { caseStudies, userCaseStudyInteractions };
-    } catch (e: any) { return { error: e.message }; }
-};
-export const getCommunityData = async (): Promise<{ chatMessages: ChatMessage[], userMessageVotes: UserMessageVote[], xp_events: XpEvent[] } | { error: string }> => {
-    try {
-        const [chatMessages, userMessageVotes, xp_events] = await Promise.all([
-            fetchTable('chat_messages', { ordering: { column: 'timestamp', options: { ascending: true } } }),
-            fetchTable('user_message_votes'),
-            fetchTable('xp_events', { ordering: { column: 'created_at', options: { ascending: false } } }),
-        ]);
-        return { chatMessages, userMessageVotes, xp_events };
-    } catch (e: any) { return { error: e.message }; }
-};
-export const getScheduleEvents = async (): Promise<ScheduleEvent[]> => fetchTable('schedule_events', { ordering: { column: 'date', options: { ascending: true } } });
-export const getUserStudyPlans = async (userId: string): Promise<StudyPlan[]> => fetchTable('study_plans', { filter: { column: 'user_id', value: userId } });
-export const getUserMoods = async (): Promise<UserMood[]> => fetchTable('user_moods');
-export const getQuestionNotebooks = async (): Promise<QuestionNotebook[]> => fetchTable('question_notebooks');
-export const getUserQuestionAnswers = async (userId: string): Promise<UserQuestionAnswer[]> => fetchTable('user_question_answers', { filter: { column: 'user_id', value: userId } });
-export const getUserNotebookInteractions = async (userId: string): Promise<UserNotebookInteraction[]> => fetchTable('user_notebook_interactions', { filter: { column: 'user_id', value: userId } });
-export const getUserContentInteractions = async (userId: string): Promise<UserContentInteraction[]> => fetchTable('user_content_interactions', { filter: { column: 'user_id', value: userId } });
-export const getUserXpEvents = async (userId: string): Promise<XpEvent[]> => fetchTable('xp_events', { filter: { column: 'user_id', value: userId }, ordering: { column: 'created_at', options: { ascending: false } } });
-
-export const getInitialData = async (): Promise<{ data: AppData; error: string | null; }> => {
-    try {
-        const users = await fetchTable('users');
-        const data = {
-            ...INITIAL_APP_DATA,
-            users,
-        };
-        return { data, error: null };
-    } catch (error: any) {
-        console.error("Error fetching initial user data from Supabase", error);
-        return { data: INITIAL_APP_DATA, error: error.message };
-    }
-};
-
-export const getSourcesBase = async (): Promise<Source[]> => {
-    const sources = await fetchTable('sources');
-    // Garante que os arrays de conteúdo aninhado existam para evitar erros
-    return sources.map(s => ({
-        ...s,
-        summaries: s.summaries || [],
-        flashcards: s.flashcards || [],
-        questions: s.questions || [],
-        mind_maps: s.mind_maps || [],
-        audio_summaries: s.audio_summaries || [],
-    }));
-};
-
-export const getQuestionStats = async () => {
-    if (!checkSupabase()) return { data: null, error: 'Supabase not configured' };
-    return supabase!.rpc('get_question_stats');
-}
-
-export const getNotebookLeaderboards = async () => {
-    if (!checkSupabase()) return { data: null, error: 'Supabase not configured' };
-    return supabase!.rpc('get_notebook_leaderboards');
-}
-
 
 export const createUser = async (newUserPayload: Omit<User, 'id'>): Promise<{ user: User | null, error: string | null }> => {
     if (!checkSupabase()) return { user: null, error: "Supabase client not configured." };

@@ -1,7 +1,3 @@
-
-
-
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { Theme, View, AppData, User, MainContentProps } from '../types';
 import { VIEWS } from '../constants';
@@ -18,7 +14,6 @@ import { AudioSummariesView } from './views/AudioSummariesView';
 import { CommunityView } from './views/CommunityView';
 import { ProfileView } from './views/ProfileView';
 import { SourcesView } from './views/SourcesView';
-// Fix: Correctly import CaseStudyView from its new file.
 import { CaseStudyView } from './views/CaseStudyView';
 import { CronogramaView } from './views/CronogramaView';
 import { LinksFilesView } from './views/LinksFilesView';
@@ -28,16 +23,6 @@ import { ContagemView } from './views/ContagemView';
 export const MainContent: React.FC<MainContentProps> = (props) => {
   const { activeView, setActiveView, appData, theme, setTheme, onToggleLiveAgent, isLiveAgentActive, onToggleAgentSettings, navTarget, setNavTarget, setScreenContext, liveAgentStatus, processingTasks, setProcessingTasks } = props;
 
-  useEffect(() => {
-    const successTasks = processingTasks.filter(t => t.status === 'success');
-    if (successTasks.length > 0) {
-        const timer = setTimeout(() => {
-            setProcessingTasks(prev => prev.filter(t => !successTasks.find(st => st.id === t.id)));
-        }, 5000);
-        return () => clearTimeout(timer);
-    }
-  }, [processingTasks, setProcessingTasks]);
-
   const handleNavigation = (viewName: string, term: string, id?: string) => {
     const targetView = VIEWS.find(v => v.name === viewName);
     if (targetView && setNavTarget) {
@@ -46,7 +31,27 @@ export const MainContent: React.FC<MainContentProps> = (props) => {
     }
   };
 
+  const allSummaries = useMemo(() => appData.sources.flatMap(s => (s.summaries || []).map(summary => ({ ...summary, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
+  const allFlashcards = useMemo(() => appData.sources.flatMap(s => (s.flashcards || []).map(fc => ({ ...fc, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
+  const allQuestions = useMemo(() => appData.sources.flatMap(s => (s.questions || []).map(q => ({ ...q, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
+  const allMindMaps = useMemo(() => appData.sources.flatMap(s => (s.mind_maps || []).map(mm => ({ ...mm, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
+  const allAudioSummaries = useMemo(() => appData.sources.flatMap(s => (s.audio_summaries || []).map(as => ({ ...as, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
+  const allLinksFiles = useMemo(() => appData.linksFiles.map(lf => ({...lf, user_id: lf.user_id, created_at: lf.created_at})), [appData.linksFiles]);
+  
+   // Auto-dismiss successful processing tasks
+  useEffect(() => {
+    const successTasks = processingTasks.filter(t => t.status === 'success');
+    if (successTasks.length > 0) {
+        const timer = setTimeout(() => {
+            setProcessingTasks(prev => prev.filter(t => !successTasks.find(st => st.id === t.id)));
+        }, 5000);
+        return () => clearTimeout(timer);
+    }
+  }, [processingTasks]);
+
+
   const renderContent = () => {
+    // FIX: Pass the full navTarget object if the view name matches to maintain type consistency. The child component can then destructure what it needs.
     const currentNavTarget = (navTarget && navTarget.viewName === activeView.name) ? navTarget : null;
     const clearNavTarget = () => setNavTarget ? setNavTarget(null) : undefined;
 
@@ -61,19 +66,17 @@ export const MainContent: React.FC<MainContentProps> = (props) => {
       case 'Contagem':
         return <ContagemView {...viewProps} />;
       case 'Resumos':
-        return <SummariesView {...viewProps} />;
+        return <SummariesView {...viewProps} allItems={allSummaries} />;
       case 'Flashcards':
-// FIX: Removed the `allItems` prop from FlashcardsView as it now calculates this internally.
-        return <FlashcardsView {...viewProps} />;
+        return <FlashcardsView {...viewProps} allItems={allFlashcards} />;
       case 'Questões':
-        return <QuestionsView {...viewProps} />;
+        return <QuestionsView {...viewProps} allItems={allQuestions} />;
       case 'Links/Arquivos':
-// FIX: Removed the `allItems` prop from LinksFilesView as it now calculates this internally.
-        return <LinksFilesView {...viewProps} />;
+        return <LinksFilesView {...viewProps} allItems={allLinksFiles} />;
       case 'Mapas Mentais':
-          return <MindMapsView {...viewProps} />;
+          return <MindMapsView {...viewProps} allItems={allMindMaps} />;
       case 'Mídia':
-          return <AudioSummariesView {...viewProps} />;
+          return <AudioSummariesView {...viewProps} allItems={allAudioSummaries} />;
       case 'Estudo de Caso':
           return <CaseStudyView {...props} />;
       case 'Cronograma':
@@ -116,4 +119,17 @@ export const MainContent: React.FC<MainContentProps> = (props) => {
                     <p className="font-semibold text-sm truncate" title={task.name}>{task.name}</p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">{task.message}</p>
                   </div>
-                  <
+                  <div className="flex-shrink-0">
+                    {task.status === 'error' && (
+                      <button onClick={() => setProcessingTasks(prev => prev.filter(t => t.id !== task.id))} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                        <XMarkIcon className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+      </div>
+  );
+};

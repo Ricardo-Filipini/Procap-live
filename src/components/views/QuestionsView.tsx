@@ -1,92 +1,31 @@
 
 
 
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { MainContentProps } from '../../types';
-import { Question, Comment, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer, Source } from '../../types';
+import { Question, Comment, QuestionNotebook, UserNotebookInteraction, UserQuestionAnswer } from '../../types';
 import { CommentsModal } from '../shared/CommentsModal';
 import { ContentToolbar } from '../shared/ContentToolbar';
 import { checkAndAwardAchievements } from '../../lib/achievements';
 import { handleInteractionUpdate, handleVoteUpdate } from '../../lib/content';
-import { addQuestionNotebook, upsertUserVote, incrementNotebookVote, updateContentComments, updateUser as supabaseUpdateUser, upsertUserQuestionAnswer, clearNotebookAnswers, supabase, getQuestions, getSourcesBase, getQuestionNotebooks, getUserQuestionAnswers, getUserNotebookInteractions } from '../../services/supabaseClient';
+// FIX: Replaced incrementVoteCount with incrementNotebookVote for type safety and correctness.
+import { addQuestionNotebook, upsertUserVote, incrementNotebookVote, updateContentComments, updateUser as supabaseUpdateUser, upsertUserQuestionAnswer, clearNotebookAnswers, supabase } from '../../services/supabaseClient';
 import { NotebookDetailView, NotebookGridView } from './QuestionsViewPart2';
 
 type SortOption = 'temp' | 'time' | 'subject' | 'user' | 'source';
 
+// Fix: Removed the incompatible 'navTarget' override. The correct type is inherited from MainContentProps.
 interface QuestionsViewProps extends MainContentProps {
+    allItems: (Question & { user_id: string, created_at: string, source: any})[];
     clearNavTarget: () => void;
 }
 
-export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppData, currentUser, updateUser, navTarget, clearNavTarget, setScreenContext }) => {
-    const [isLoadingContent, setIsLoadingContent] = useState(false);
+export const QuestionsView: React.FC<QuestionsViewProps> = ({ allItems, appData, setAppData, currentUser, updateUser, navTarget, clearNavTarget, setScreenContext }) => {
     const [selectedNotebook, setSelectedNotebook] = useState<QuestionNotebook | 'all' | null>(null);
     const [commentingOnNotebook, setCommentingOnNotebook] = useState<QuestionNotebook | null>(null);
     const [sort, setSort] = useState<SortOption>('temp');
     const [questionIdToFocus, setQuestionIdToFocus] = useState<string | null>(null);
     const [restoredFromStorage, setRestoredFromStorage] = useState(false);
-
-    const allItems = useMemo(() => appData.sources.flatMap(s => (s.questions || []).map(q => ({ ...q, source: s, user_id: s.user_id, created_at: s.created_at }))), [appData.sources]);
-    
-    const handleFocusConsumed = () => {
-        setQuestionIdToFocus(null);
-    };
-    
-    useEffect(() => {
-        const needsData =
-            !appData.sources.some(s => s.questions?.length > 0) ||
-            appData.questionNotebooks.length === 0 ||
-            appData.userQuestionAnswers.length === 0 ||
-            appData.userNotebookInteractions.length === 0;
-
-        if (needsData) {
-            setIsLoadingContent(true);
-            Promise.all([
-                appData.questionNotebooks.length === 0 ? getQuestionNotebooks() : Promise.resolve(null),
-                appData.userQuestionAnswers.length === 0 ? getUserQuestionAnswers(currentUser.id) : Promise.resolve(null),
-                appData.userNotebookInteractions.length === 0 ? getUserNotebookInteractions(currentUser.id) : Promise.resolve(null),
-                !appData.sources.some(s => s.questions?.length > 0) ? getQuestions() : Promise.resolve(null),
-                !appData.sources.some(s => s.questions?.length > 0) ? getSourcesBase() : Promise.resolve(null),
-            ]).then(([notebooks, answers, interactions, questions, sources]) => {
-                setAppData(prev => {
-                    const newState = { ...prev };
-                    
-                    if (notebooks) newState.questionNotebooks = notebooks;
-                    if (answers) newState.userQuestionAnswers = answers;
-                    if (interactions) newState.userNotebookInteractions = interactions;
-
-                    if (questions && sources) {
-                        const questionsBySource = new Map<string, Question[]>();
-                        questions.forEach(q => {
-                            const list = questionsBySource.get(q.source_id) || [];
-                            list.push(q);
-                            questionsBySource.set(q.source_id, list);
-                        });
-
-                        const newSources = [...prev.sources];
-                        const sourceMap = new Map(newSources.map(s => [s.id, s]));
-
-                        sources.forEach(source => {
-                            if (!sourceMap.has(source.id)) {
-                                sourceMap.set(source.id, source);
-                            }
-                        });
-
-                        sourceMap.forEach(source => {
-                            source.questions = questionsBySource.get(source.id) || source.questions || [];
-                        });
-                        
-                        newState.sources = Array.from(sourceMap.values());
-                    }
-                    return newState;
-                });
-            }).catch(e => {
-                console.error("Failed to load QuestionsView data", e);
-            }).finally(() => {
-                setIsLoadingContent(false);
-            });
-        }
-    }, [appData, currentUser.id, setAppData]);
     
     // Restore from localStorage on initial mount
     useEffect(() => {
@@ -141,6 +80,35 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
         }
     }, [selectedNotebook]);
 
+
+    useEffect(() => {
+        const fetchCurrentUserAnswers = async () => {
+            if (!supabase || !currentUser?.id) return;
+
+            const { data, error } = await supabase
+                .from('user_question_answers')
+                .select('*')
+                .eq('user_id', currentUser.id);
+
+            if (error) {
+                console.error("Failed to fetch current user's answers:", error);
+            } else if (data) {
+                setAppData(prev => {
+                    // Filter out stale answers for the current user and merge fresh data
+                    const otherUsersAnswers = prev.userQuestionAnswers.filter(
+                        a => a.user_id !== currentUser.id
+                    );
+                    return {
+                        ...prev,
+                        userQuestionAnswers: [...otherUsersAnswers, ...data],
+                    };
+                });
+            }
+        };
+
+        fetchCurrentUserAnswers();
+    }, [currentUser.id, setAppData]);
+
     const handleNotebookInteractionUpdate = async (notebookId: string, update: Partial<UserNotebookInteraction>) => {
         let newInteractions = [...appData.userNotebookInteractions];
         const existingIndex = newInteractions.findIndex(i => i.user_id === currentUser.id && i.notebook_id === notebookId);
@@ -167,6 +135,7 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
         
         setAppData(prev => ({ ...prev, questionNotebooks: prev.questionNotebooks.map(n => n.id === notebookId ? { ...n, [`${type}_votes`]: n[`${type}_votes`] + increment } : n) }));
         
+        // FIX: Replaced the generic incrementVoteCount with the specific incrementNotebookVote function.
         await incrementNotebookVote(notebookId, `${type}_votes`, increment);
         
         const notebook = appData.questionNotebooks.find(n => n.id === notebookId);
@@ -176,6 +145,7 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
                 const author = appData.users.find(u => u.id === authorId);
                 if (author) {
                     const xpChange = (type === 'hot' ? 1 : -1) * increment;
+                    // FIX: Defensively cast `author.xp` to a number before performing addition to prevent runtime errors with potentially malformed data.
                     const updatedAuthor = { ...author, xp: (Number(author.xp) || 0) + xpChange };
                     const result = await supabaseUpdateUser(updatedAuthor);
                     if (result) {
@@ -205,6 +175,7 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
     };
     
     const processedNotebooks = useMemo(() => {
+        // Fix: Explicitly type `notebooks` to resolve type inference issues.
         const notebooks: QuestionNotebook[] = [...appData.questionNotebooks];
         switch (sort) {
             case 'time':
@@ -227,9 +198,6 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
         }
     }, [appData.questionNotebooks, sort]);
 
-    if (isLoadingContent) {
-        return <div className="text-center p-8">Carregando questões e cadernos...</div>;
-    }
 
     if (selectedNotebook) {
         return <NotebookDetailView 
@@ -244,7 +212,6 @@ export const QuestionsView: React.FC<QuestionsViewProps> = ({ appData, setAppDat
                 setQuestionIdToFocus(null);
             }}
             questionIdToFocus={questionIdToFocus}
-            onFocusConsumed={handleFocusConsumed}
             setScreenContext={setScreenContext}
         />
     }

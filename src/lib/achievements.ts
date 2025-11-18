@@ -1,8 +1,8 @@
 
+
 import { AppData, User } from '../types';
 import { ACHIEVEMENTS } from '../constants';
 
-// FIX: A function whose declared type is neither 'undefined', 'void', nor 'any' must return a value.
 export const checkAndAwardAchievements = (user: User, appData: AppData): User => {
     const newAchievements = new Set(user.achievements);
     const interactions = appData.userContentInteractions.filter(i => i.user_id === user.id);
@@ -27,10 +27,12 @@ export const checkAndAwardAchievements = (user: User, appData: AppData): User =>
     
     const votesGiven = appData.userContentInteractions
         .filter(i => i.user_id === user.id)
+// FIX: Defensively parse vote counts to ensure they are numbers before adding them.
         .reduce((sum, i) => sum + (Number(i.hot_votes) || 0) + (Number(i.cold_votes) || 0), 0)
         +
         appData.userNotebookInteractions
         .filter(i => i.user_id === user.id)
+// FIX: Defensively parse vote counts to ensure they are numbers before adding them.
         .reduce((sum, i) => sum + (Number(i.hot_votes) || 0) + (Number(i.cold_votes) || 0), 0);
     checkCategory(ACHIEVEMENTS.VOTES_GIVEN, votesGiven);
 

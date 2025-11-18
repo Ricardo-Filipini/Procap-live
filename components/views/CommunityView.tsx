@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { AppData, User, ChatMessage, MainContentProps, XpEvent } from '../../types';
 import { PaperAirplaneIcon, MinusIcon, PlusIcon, PlayIcon, PauseIcon, ArrowPathIcon } from '../Icons';
 import { FontSizeControl, FONT_SIZE_CLASSES } from '../shared/FontSizeControl';
@@ -144,7 +144,7 @@ const Chat: React.FC<{currentUser: User, appData: AppData, setAppData: React.Dis
         }
 
         const message = appData.chatMessages.find(m => m.id === messageId);
-        const author = message ? appData.users.find((u): u is User => !!u && u.pseudonym === message.author) : null;
+        const author = message ? appData.users.filter((u): u is User => !!u).find(u => u.pseudonym === message.author) : null;
         const isOwnContent = !author || author.id === currentUser.id;
 
         setAppData(prev => {
@@ -379,7 +379,7 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[]; them
               ...(user as User & { color: string }),
               xp: xpMap.get((user as User).id) || 0,
             }))
-            .sort((a, b) => (Number(b.xp) || 0) - (Number(a.xp) || 0))
+            .sort((a, b) => b.xp - a.xp)
             .slice(0, 15);
     }, [currentTime, sortedEvents, userMap, timeRange]);
 
@@ -410,29 +410,29 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[]; them
                     }
                 }
             });
-            
-            nextDataMap.forEach((user: User & { color: string; xp: number }, userId) => {
+
+            nextDataMap.forEach((user, userId) => {
                 const targetXp = targetMap.get(userId) ?? 0;
-                const currentXp = Number(user.xp) || 0;
-                const diff = targetXp - currentXp;
+                const diff = targetXp - Number(user.xp || 0);
             
-                if (Math.abs(diff) < 0.5) {
-                    if (currentXp !== targetXp) {
+                if (Math.abs(diff) < 0.5) { // Threshold to stop animation and snap
+                    if (Number(user.xp || 0) !== targetXp) {
                         user.xp = targetXp;
                         hasChanged = true;
                     }
                 } else {
+                    // Move a fraction of the distance each frame for a smooth animation
                     const increment = diff * 0.1;
-                    user.xp = currentXp + increment;
+                    user.xp = Number(user.xp || 0) + increment;
                     hasChanged = true;
                 }
             });
 
             if (hasChanged) {
                 const sortedNextData = Array.from(nextDataMap.values())
-                    .sort((a: { xp: number }, b: { xp: number }) => (Number(b.xp) || 0) - (Number(a.xp) || 0))
+                    .sort((a, b) => Number(b.xp || 0) - Number(a.xp || 0))
                     .slice(0, 15);
-                setDisplayedRaceData(sortedNextData);
+                setDisplayedRaceData(sortedNextData as (User & { color: string; xp: number })[]);
             }
         }, 50);
 
@@ -507,7 +507,7 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[]; them
         return <div className="text-center p-8 bg-card-light dark:bg-card-dark rounded-lg shadow-md border border-border-light dark:border-border-dark flex-1 flex items-center justify-center">Dados de XP insuficientes para a animação.</div>;
     }
 
-    const maxXP = Math.max(20, ...displayedRaceData.map(d => Number(d.xp) || 0));
+    const maxXP = Math.max(20, ...displayedRaceData.map(d => d.xp));
     const ITEM_HEIGHT = 48;
     const labelColor = theme === 'dark' ? 'text-white' : 'text-black';
 
@@ -552,7 +552,7 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[]; them
                             {/* Bar */}
                             <div
                                 className="absolute top-0 left-0 h-full rounded-md transition-all duration-500 ease-linear"
-                                style={{ width: `${((Number(user.xp) || 0) / maxXP) * 100}%`, backgroundColor: user.color }}
+                                style={{ width: `${(user.xp / maxXP) * 100}%`, backgroundColor: user.color }}
                             />
                             {/* Content Layer */}
                             <div className="relative w-full h-full flex items-center justify-between px-2">
@@ -560,7 +560,7 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[]; them
                                     <span className="font-bold text-lg w-8 text-center text-white mix-blend-difference flex-shrink-0">{index + 1}</span>
                                     <span className={`font-semibold ${labelColor} ml-4 whitespace-nowrap`}>{user.pseudonym}</span>
                                 </div>
-                                <span className="font-bold text-primary-light dark:text-primary-dark tabular-nums flex-shrink-0 pr-2">{Math.floor(Number(user.xp) || 0)} XP</span>
+                                <span className="font-bold text-primary-light dark:text-primary-dark tabular-nums flex-shrink-0 pr-2">{Math.floor(user.xp)} XP</span>
                             </div>
                         </div>
                     </div>
@@ -573,29 +573,44 @@ const LeaderboardRaceChart: React.FC<{ users: User[]; xp_events: XpEvent[]; them
 export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUser, setAppData, onNavigate, theme }) => {
     const [leaderboardFilter, setLeaderboardFilter] = useState<'geral' | 'diaria' | 'periodo' | 'hora'>('geral');
     const [isRaceChartActive, setIsRaceChartActive] = useState(false);
-    const [isLoadingContent, setIsLoadingContent] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
 
     useEffect(() => {
-        const dataLoaded = appData.chatMessages.length > 0 && appData.xp_events.length > 0;
-        if (!dataLoaded) {
-            setIsLoadingContent(true);
-            getCommunityData().then(result => {
-                if ('error' in result) {
-                    console.error("Failed to load community data:", result.error);
-                } else {
-                    setAppData(prev => ({ ...prev, ...result }));
-                }
-                setIsLoadingContent(false);
-            });
+        const areCommunityFeaturesLoaded = appData.chatMessages.length > 0 && appData.xp_events.length > 0;
+        if (!areCommunityFeaturesLoaded) {
+            setIsLoading(true);
+            getCommunityData().then(data => {
+                setAppData(prev => {
+                    const userMap = new Map(prev.users.map(u => [u.id, u]));
+                    (data.users || []).forEach(u => userMap.set(u.id, u));
+                    return {
+                        ...prev,
+                        ...data,
+                        users: Array.from(userMap.values())
+                    };
+                });
+            }).finally(() => setIsLoading(false));
         }
     }, [appData.chatMessages.length, appData.xp_events.length, setAppData]);
-
 
     const filteredLeaderboard = useMemo(() => {
         if (isRaceChartActive) return [];
 
+        let usersWithCorrectXp = appData.users;
+        // The leaderboard should always reflect the most up-to-date XP.
+        // If community data (and thus fresh xp_events) is loaded, use that.
+        if (appData.xp_events.length > 0) {
+            const totalXpMap = new Map<string, number>();
+            appData.xp_events.forEach((event: XpEvent) => {
+                const currentXp = totalXpMap.get(event.user_id) || 0;
+                totalXpMap.set(event.user_id, currentXp + event.amount);
+            });
+            usersWithCorrectXp = appData.users.map(u => ({...u, xp: totalXpMap.get(u.id) || 0}));
+        }
+
+
         if (leaderboardFilter === 'geral') {
-            return [...appData.users].sort((a: User, b: User) => (Number(b.xp) || 0) - (Number(a.xp) || 0));
+            return [...usersWithCorrectXp].sort((a: User, b: User) => b.xp - a.xp);
         }
 
         const calculateXpFromEvents = (events: typeof appData.xp_events) => {
@@ -623,7 +638,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
         const xpEventsInPeriod = appData.xp_events.filter(event => new Date(event.created_at) >= startTime);
         const userXpInPeriod = calculateXpFromEvents(xpEventsInPeriod);
 
-        return userXpInPeriod.filter(user => user.xp > 0).sort((a: User, b: User) => (Number(b.xp) || 0) - (Number(a.xp) || 0));
+        return userXpInPeriod.filter(user => user.xp > 0).sort((a: User, b: User) => b.xp - a.xp);
 
     }, [appData.users, appData.xp_events, leaderboardFilter, isRaceChartActive]);
     
@@ -633,6 +648,11 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
         { key: 'periodo', emoji: '🌓', title: 'Período' },
         { key: 'hora', emoji: '⏱️', title: 'Hora' },
     ];
+    
+    if (isLoading) {
+        return <div className="text-center p-8">Carregando dados da comunidade...</div>;
+    }
+
 
     return (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-[calc(100vh-11rem)]">
@@ -665,10 +685,9 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
                     </div>
                 </div>
                 {isRaceChartActive ? (
-                    isLoadingContent ? <div className="text-center p-8">Carregando dados da comunidade...</div> : <LeaderboardRaceChart users={appData.users} xp_events={appData.xp_events} theme={theme!} />
+                    <LeaderboardRaceChart users={appData.users} xp_events={appData.xp_events} theme={theme!} />
                 ) : (
                     <div className="bg-card-light dark:bg-card-dark p-4 rounded-lg shadow-md border border-border-light dark:border-border-dark flex-1 overflow-y-auto h-[33rem] lg:h-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-                        {isLoadingContent ? <div className="text-center p-8">Carregando...</div> :
                         <ul className="space-y-3">
                             {filteredLeaderboard.length > 0 ? filteredLeaderboard.map((user, index) => (
                                 <li key={user.id} className={`flex items-center justify-between p-2 rounded-md ${user.id === currentUser.id ? 'bg-primary-light/20' : 'bg-background-light dark:bg-background-dark'}`}>
@@ -684,12 +703,11 @@ export const CommunityView: React.FC<CommunityViewProps> = ({ appData, currentUs
                                 </div>
                             )}
                         </ul>
-                        }
                     </div>
                 )}
             </div>
             <div className="lg:col-span-1 h-full">
-                 {isLoadingContent ? <div className="text-center p-8">Carregando chat...</div> : <Chat currentUser={currentUser} appData={appData} setAppData={setAppData} onNavigate={onNavigate} /> }
+                <Chat currentUser={currentUser} appData={appData} setAppData={setAppData} onNavigate={onNavigate} />
             </div>
         </div>
     );
